@@ -1,0 +1,529 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Hive Operations Hub</title>
+<meta name="description" content="Powered by H.I.V.E. team portal: tasks and end-of-day reports.">
+<meta name="robots" content="noindex, nofollow">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 48 52%27%3E%3Cpolygon points=%2724,2 45,14 45,38 24,50 3,38 3,14%27 fill=%27%23e0a31a%27/%3E%3Cpolygon points=%2724,10 38,18 38,34 24,42 10,34 10,18%27 fill=%27%23b8105f%27/%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=DM+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: one operator's console. Header with agent run status, a four-figure summary strip, then tabbed work lists that stack on phones. */
+:root {
+  --bg: #fbf6ee;
+  --surface: #ffffff;
+  --surface-2: #f3eadc;
+  --line: #e8dcc9;
+  --fg: #21121b;
+  --muted: #6d5b64;
+  --accent: #b8105f;
+  --accent-hover: #96084c;
+  --accent-soft: #fbdcea;
+  --accent-fg: #ffffff;
+  --gold: #e0a31a;
+  --gold-soft: #fbecc4;
+  --ink: #2a0f1e;
+  --high: #b3261e;
+  --high-soft: #f8dcda;
+  --med: #8a5a00;
+  --med-soft: #fbecc4;
+  --low: #2f6b45;
+  --low-soft: #daeee1;
+  --font-body: "Plus Jakarta Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-data: "DM Mono", ui-monospace, "SF Mono", Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #160a11; --surface: #22131b; --surface-2: #2e1b26; --line: #442e3b;
+    --fg: #f8ede4; --muted: #bba7b1; --accent: #f0509a; --accent-hover: #ff72b0; --accent-soft: #4b1b35; --accent-fg: #160a11;
+    --gold: #f2bd3c; --gold-soft: #3d2f12; --ink: #2a0f1e;
+    --high: #ff8f86; --high-soft: #47231f; --med: #f4c96e; --med-soft: #3d2f12; --low: #86d3a1; --low-soft: #1f3a2a;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #160a11; --surface: #22131b; --surface-2: #2e1b26; --line: #442e3b;
+  --fg: #f8ede4; --muted: #bba7b1; --accent: #f0509a; --accent-hover: #ff72b0; --accent-soft: #4b1b35; --accent-fg: #160a11;
+  --gold: #f2bd3c; --gold-soft: #3d2f12; --ink: #2a0f1e;
+  --high: #ff8f86; --high-soft: #47231f; --med: #f4c96e; --med-soft: #3d2f12; --low: #86d3a1; --low-soft: #1f3a2a;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+body { background: var(--bg); color: var(--fg); font-family: var(--font-body); font-size: 15px; line-height: 1.45; padding-block: 24px 48px; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); }
+.wrap { max-width: 1040px; margin: 0 auto; display: flex; flex-direction: column; gap: 20px; }
+header { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: flex-end; gap: 12px; }
+h1 { font-size: 26px; line-height: 1.1; margin: 0; letter-spacing: -0.01em; text-wrap: balance; }
+.sub { color: var(--muted); margin: 4px 0 0; }
+.agents { display: flex; flex-wrap: wrap; gap: 8px; }
+.chip { font-family: var(--font-data); font-size: 12px; border: 1px solid var(--line); background: var(--surface); border-radius: 6px; padding: 6px 10px; color: var(--muted); }
+.chip b { color: var(--fg); font-weight: 500; }
+.summary { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; }
+.stat { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 12px 14px; min-width: 0; }
+.stat .n { font-family: var(--font-data); font-size: 28px; line-height: 1.1; font-variant-numeric: tabular-nums; }
+.stat .l { color: var(--muted); font-size: 13px; margin-top: 2px; }
+.stat.alert .n { color: var(--high); }
+nav.tabs { display: flex; gap: 4px; flex-wrap: wrap; border-bottom: 1px solid var(--line); }
+nav.tabs button { font: inherit; background: none; border: 0; border-bottom: 2px solid transparent; color: var(--muted); padding: 10px 14px; cursor: pointer; margin-bottom: -1px; }
+nav.tabs button[aria-selected="true"] { color: var(--fg); border-bottom-color: var(--accent); font-weight: 500; }
+nav.tabs button:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-visible, .btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.panel { display: flex; flex-direction: column; gap: 14px; }
+.two { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 16px; }
+.block { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 14px; min-width: 0; display: flex; flex-direction: column; gap: 10px; }
+.block h2 { font-size: 15px; margin: 0; }
+.filters { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; color: var(--muted); font-size: 13px; }
+select, input, textarea { font: inherit; color: var(--fg); background: var(--surface); border: 1px solid var(--line); border-radius: 6px; padding: 7px 9px; min-width: 0; }
+textarea { width: 100%; min-height: 64px; resize: vertical; }
+.btn { font: inherit; background: var(--accent); color: var(--accent-fg); border: 0; border-radius: 6px; padding: 8px 14px; cursor: pointer; font-weight: 500; }
+.btn[disabled] { opacity: 0.5; cursor: not-allowed; }
+.list { display: flex; flex-direction: column; }
+.row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px 14px; padding: 12px 0; border-top: 1px solid var(--line); align-items: start; }
+.row:first-child { border-top: 0; }
+.row .main { min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+.row .title { font-weight: 500; overflow-wrap: anywhere; }
+.row .meta { font-size: 13px; color: var(--muted); overflow-wrap: anywhere; }
+.row .meta .mono { font-family: var(--font-data); }
+.pill { display: inline-block; font-family: var(--font-data); font-size: 11px; padding: 2px 7px; border-radius: 999px; margin-right: 6px; vertical-align: 1px; }
+.pill.High, .pill.over { background: var(--high-soft); color: var(--high); }
+.pill.Medium { background: var(--med-soft); color: var(--med); }
+.pill.Low { background: var(--low-soft); color: var(--low); }
+.who { font-size: 13px; color: var(--muted); display: flex; gap: 6px; align-items: center; justify-content: flex-end; }
+.linkbtn { font: inherit; background: none; border: 0; color: var(--accent); cursor: pointer; text-decoration: underline; padding: 0; }
+.signin { max-width: 420px; margin: 40px auto 0; }
+#viewas { display: flex; flex-direction: column; gap: 6px; align-items: flex-end; }
+.ctl { display: flex; flex-direction: column; gap: 6px; }
+.task { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 14px; display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.task .actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.empty { color: var(--muted); padding: 18px 4px; text-align: left; }
+.form { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 10px; align-items: start; }
+.form .full { grid-column: 1 / -1; }
+label { display: flex; flex-direction: column; gap: 4px; font-size: 13px; color: var(--muted); }
+.note { font-size: 13px; color: var(--muted); }
+@media (max-width: 520px) { .row { grid-template-columns: 1fr; } }
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }
+
+/* Hive brand: deep pink, gold, plum-black and cream */
+h1 { font-weight: 800; letter-spacing: -0.02em; }
+header.brand { background: radial-gradient(circle at 92% -20%, #6e1743 0%, transparent 55%), var(--ink); color: #fff4e6; border-radius: 14px; padding: 20px 24px; border-bottom: 5px solid var(--gold); align-items: center; position: relative; overflow: hidden; }
+header.brand::before { content: ""; position: absolute; inset: 0; opacity: 0.09; pointer-events: none; background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='56' height='97' viewBox='0 0 56 97'%3E%3Cpath d='M28 2l26 15v30L28 62 2 47V17zM28 62v30M2 47L-24 62M54 47l26 15' fill='none' stroke='%23e0a31a' stroke-width='2'/%3E%3C/svg%3E"); }
+header.brand > * { position: relative; }
+.lockup { display: flex; align-items: center; gap: 14px; min-width: 0; }
+.lockup { flex: 1 1 340px; }
+header.brand #viewas { margin-left: auto; }
+.mark { width: 46px; height: 50px; flex: none; }
+header.brand h1 { color: #fff4e6; }
+header.brand .sub, header.brand .note, header.brand .who { color: #e7d3dc; }
+header.brand .chip { background: rgba(255,255,255,0.08); border-color: rgba(255,255,255,0.2); color: #e7d3dc; }
+header.brand .chip b { color: #ffe3a0; }
+header.brand select { background: #3a1829; color: #fff4e6; border-color: rgba(255,255,255,0.28); }
+header.brand .linkbtn { color: #ffd879; }
+.stat { border-top: 3px solid var(--gold); }
+.stat.alert { border-top-color: var(--high); }
+nav.tabs button { font-weight: 600; }
+nav.tabs button[aria-selected="true"] { color: var(--accent); border-bottom: 3px solid var(--accent); }
+.btn { background: var(--accent); color: var(--accent-fg); font-weight: 700; border-radius: 8px; padding: 9px 16px; }
+.btn:hover:not([disabled]) { background: var(--accent-hover); }
+.block, .task, .stat { border-radius: 12px; }
+.block h2 { border-left: 4px solid var(--gold); padding-left: 10px; font-size: 15px; }
+.signin { border-top: 4px solid var(--accent); }
+.pill.Medium { background: var(--gold-soft); color: var(--med); }
+</style>
+<style>
+body { margin: 0; }
+.banner { background: var(--gold-soft); color: var(--fg); border: 1px solid var(--gold); border-radius: 10px; padding: 10px 14px; }
+.err { color: var(--high); font-size: 13px; }
+.ok { color: var(--low); font-size: 13px; }
+.loading { color: var(--muted); padding: 24px 4px; }
+.refresh { font-size: 12px; color: var(--muted); }
+#banner:empty, #summary:empty, #agents:empty, #tabs:empty { display: none; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="brand">
+    <div class="lockup">
+      <svg class="mark" viewBox="0 0 48 52" aria-hidden="true"><polygon points="24,2 45,14 45,38 24,50 3,38 3,14" fill="#e0a31a"/><polygon points="24,10 38,18 38,34 24,42 10,34 10,18" fill="#b8105f"/><text x="24" y="31" text-anchor="middle" font-family="Plus Jakarta Sans, sans-serif" font-weight="800" font-size="17" fill="#fff4e6">H</text></svg>
+      <div>
+        <h1>Hive Operations Hub</h1>
+        <p class="sub" id="sub">Sign in to see your page.</p>
+      </div>
+    </div>
+    <div class="agents" id="agents"></div>
+    <div id="viewas"></div>
+  </header>
+  <div id="banner"></div>
+  <section class="summary" id="summary" aria-label="Summary"></section>
+  <nav class="tabs" id="tabs" role="tablist" aria-label="Sections"></nav>
+  <main class="panel" id="panel"><div class="loading">Loading…</div></main>
+  <p class="note" id="foot" role="status"></p>
+</div>
+
+<script>
+(function () {
+  "use strict";
+  var TAB_SETS = {
+    Organizer: [["today", "Today"], ["findings", "Findings"], ["assignments", "Assignments"], ["eod", "End of day"], ["notes", "Notes for the agents"], ["team", "Team"]],
+    Admin: [["assignments", "Assignments"], ["eod", "End of day"]],
+    Expert: [["mine", "My tasks"], ["eod", "End of day"]]
+  };
+  var state = { token: "", data: null, names: [], tab: "", viewAs: "", fFilter: "Open", aFilter: "Active", loginErr: "", busy: false, showPw: false, lastLoad: 0 };
+
+  function $(id) { return document.getElementById(id); }
+  function el(tag, attrs, kids) {
+    var n = document.createElement(tag);
+    if (attrs) Object.keys(attrs).forEach(function (k) {
+      var v = attrs[k];
+      if (k === "text") n.textContent = v;
+      else if (k === "class") n.className = v;
+      else if (k === "value") n.value = v;
+      else if (k.slice(0, 2) === "on") n.addEventListener(k.slice(2), v);
+      else if (v !== false && v != null) n.setAttribute(k, v === true ? "" : v);
+    });
+    (kids || []).forEach(function (c) { if (c != null && c !== "") n.appendChild(typeof c === "string" ? document.createTextNode(c) : c); });
+    return n;
+  }
+  function s(v) { return v == null ? "" : String(v); }
+  function store(k, v) { try { if (v == null) localStorage.removeItem(k); else localStorage.setItem(k, v); } catch (e) {} }
+  function load(k) { try { return localStorage.getItem(k) || ""; } catch (e) { return ""; } }
+  function foot(msg, ok) { var f = $("foot"); f.textContent = msg || ""; f.className = ok ? "ok" : (msg ? "err" : "note"); }
+  function stamp(iso) { if (!iso) return "no run yet"; var d = new Date(iso); return isNaN(d) ? s(iso) : d.toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }); }
+
+  var API_URL = "https://script.google.com/macros/s/AKfycbx8ltfquOg7vTw4yH1ebj90YP9SApRvyr69VKAnutZYlkWz_cQEtDuO2fpghAeANyI8Mg/exec";
+  function api(fn) {
+    var args = Array.prototype.slice.call(arguments, 1);
+    return fetch(API_URL, { method: "POST", headers: { "Content-Type": "text/plain;charset=utf-8" }, body: JSON.stringify({ fn: fn, args: args }), redirect: "follow" })
+      .then(function (r) { return r.json(); }, function () { throw new Error("Could not reach the server. Check your connection and try again."); })
+      .then(function (res) {
+        if (res && res.ok) return res.result;
+        var msg = (res && res.error) || "Something went wrong. Try again.";
+        if (/SIGNED_OUT/.test(msg)) { signedOut(); throw new Error("Please sign in again."); }
+        throw new Error(msg.replace(/^Exception:\s*/, ""));
+      });
+  }
+
+  /* ----- data ----- */
+  function d() { return state.data || {}; }
+  function lvl() { return d().viewerLevel || ""; }
+  function canWrite() { return !d().preview; }
+  function tabs() { return TAB_SETS[lvl()] || []; }
+  function today() { return d().today || ""; }
+  function isOverdue(a) { return a.deadline && a.deadline < today() && a.status !== "Done"; }
+  function isOpenF(f) { return !f.status || f.status === "Open"; }
+
+  function refresh() {
+    if (!state.token) return Promise.resolve();
+    return api("getData", state.token, state.viewAs).then(function (data) {
+      state.data = data; state.lastLoad = Date.now();
+      if (!tabs().some(function (t) { return t[0] === state.tab; })) state.tab = tabs()[0][0];
+      render();
+    }).catch(function (e) { foot(e.message); render(); });
+  }
+  function act(promise, okMsg) {
+    state.busy = true; render();
+    return promise.then(function () { foot(okMsg || "Saved.", true); return refresh(); })
+      .catch(function (e) { foot(e.message); })
+      .then(function () { state.busy = false; render(); });
+  }
+  function signedOut() {
+    state.token = ""; state.data = null; state.viewAs = ""; store("hive_token", null);
+    loadNames();
+  }
+  function loadNames() {
+    render();
+    api("getNames").then(function (n) { state.names = n || []; render(); }).catch(function (e) { state.loginErr = e.message; render(); });
+  }
+
+  /* ----- header pieces ----- */
+  function renderHeader() {
+    var data = state.data;
+    var sub = !data ? "Sign in to see your page." : lvl() === "Organizer" ? "Findings from Comb, assignments from Waggle, updates from the team." : lvl() === "Admin" ? "Team tasks and end-of-day reports." : "Your tasks and your end-of-day update.";
+    $("sub").textContent = sub;
+    var ag = $("agents"); ag.textContent = "";
+    if (data && lvl() === "Organizer") {
+      ["Comb", "Waggle"].forEach(function (name) {
+        var last = (data.runs || []).filter(function (r) { return r.agent === name; }).sort(function (a, b) { return s(b.ts).localeCompare(s(a.ts)); })[0];
+        ag.appendChild(el("span", { class: "chip" }, [name + " ", el("b", { text: last ? stamp(last.ts) : "no run yet" })]));
+      });
+    }
+    var va = $("viewas"); va.textContent = "";
+    if (!data) return;
+    va.appendChild(el("div", { class: "who" }, [
+      el("span", { text: data.me + " · " + data.level }),
+      el("button", { class: "linkbtn", text: "Change password", onclick: function () { state.showPw = !state.showPw; render(); } }),
+      el("button", { class: "linkbtn", text: "Sign out", onclick: function () { api("logout", state.token); signedOut(); } })
+    ]));
+    if (data.level === "Organizer" && data.viewAsNames && data.viewAsNames.length) {
+      var sel = el("select", { id: "va_sel", "aria-label": "View as", onchange: function () { state.viewAs = sel.value; state.tab = ""; refresh(); } });
+      sel.appendChild(el("option", { value: "", text: "View as: myself" }));
+      data.viewAsNames.forEach(function (n) { var op = el("option", { value: n, text: "View as " + n }); if (n === state.viewAs) op.selected = true; sel.appendChild(op); });
+      va.appendChild(sel);
+    }
+  }
+  function renderBanner() {
+    var b = $("banner"); b.textContent = "";
+    if (state.data && state.data.preview) b.appendChild(el("div", { class: "banner", text: "Preview: you are seeing exactly what " + state.data.viewer + " sees. Nothing can be changed here." }));
+  }
+  function renderSummary() {
+    var box = $("summary"); box.textContent = "";
+    var data = state.data;
+    if (!data || lvl() === "Expert") return;
+    var tasks = data.tasks || [];
+    var items = [];
+    if (lvl() === "Organizer") { var high = (data.findings || []).filter(function (f) { return isOpenF(f) && f.severity === "High"; }).length; items.push(["High findings open", high, high > 0]); }
+    var over = tasks.filter(isOverdue).length;
+    items.push(["Tasks not done", tasks.filter(function (a) { return a.status !== "Done"; }).length, false]);
+    items.push(["Overdue tasks", over, over > 0]);
+    items.push(["End-of-day reports today", (data.eod || []).filter(function (e) { return e.date === today(); }).length, false]);
+    items.forEach(function (x) { box.appendChild(el("div", { class: "stat" + (x[2] ? " alert" : "") }, [el("div", { class: "n", text: String(x[1]) }), el("div", { class: "l", text: x[0] })])); });
+  }
+  function renderTabs() {
+    var nav = $("tabs"); nav.textContent = "";
+    if (!state.data) return;
+    tabs().forEach(function (t) {
+      nav.appendChild(el("button", { role: "tab", "aria-selected": String(state.tab === t[0]), text: t[1], onclick: function () { state.tab = t[0]; foot(""); render(); } }));
+    });
+  }
+
+  /* ----- shared bits ----- */
+  function options(sel, list, value, blank) {
+    if (blank) sel.appendChild(el("option", { value: "", text: blank }));
+    list.forEach(function (o) { var op = el("option", { value: o, text: o }); if (o === value) op.selected = true; sel.appendChild(op); });
+    return sel;
+  }
+  function listOrEmpty(items, builder, emptyText) {
+    var box = el("div", { class: "list" });
+    if (!items.length) box.appendChild(el("div", { class: "empty", text: emptyText }));
+    items.forEach(function (i) { box.appendChild(builder(i)); });
+    return box;
+  }
+  function byDue(a, b) { return s(a.deadline || "9999").localeCompare(s(b.deadline || "9999")); }
+  function newest(field) { return function (a, b) { return s(b[field]).localeCompare(s(a[field])); }; }
+
+  function taskMeta(a, showPerson) {
+    return el("div", { class: "meta" }, [
+      s(a.client) ? a.client + " · " : "",
+      s(a.ownerRole) || "",
+      showPerson && s(a.person) ? " (" + a.person + ")" : "",
+      s(a.deadline) ? " · due " : "",
+      s(a.deadline) ? el("span", { class: "mono", text: a.deadline }) : null,
+      s(a.notes) ? " · " + a.notes : "",
+      s(a.source) ? " · source: " + a.source : ""
+    ]);
+  }
+  function assignmentRow(a) {
+    var kids = [el("div", { class: "title" }, [isOverdue(a) ? el("span", { class: "pill over", text: "Overdue" }) : null, s(a.task)]), taskMeta(a, true)];
+    if (s(a.doneNote)) kids.push(el("div", { class: "meta", text: "What they did: " + a.doneNote + (s(a.updatedBy) ? " (" + a.updatedBy + ")" : "") }));
+    var ctl = el("div", { class: "ctl" });
+    if (lvl() !== "Expert") {
+      var st = options(el("select", { "aria-label": "Status", disabled: !canWrite() || state.busy, onchange: function () { act(api("updateTask", state.token, a.id, st.value, null)); } }), d().statuses || [], a.status || "Open");
+      var people = (d().people || []).slice(); if (a.person && people.indexOf(a.person) < 0) people.unshift(a.person);
+      var ps = options(el("select", { "aria-label": "Assigned to", disabled: !canWrite() || state.busy, onchange: function () { act(api("reassignTask", state.token, a.id, ps.value)); } }), people, a.person, "Unassigned");
+      ctl.appendChild(st); ctl.appendChild(ps);
+    } else {
+      ctl.appendChild(el("span", { class: "pill Low", text: s(a.status) || "Open" }));
+    }
+    return el("div", { class: "row" }, [el("div", { class: "main" }, kids), ctl]);
+  }
+  function findingRow(f) {
+    var sev = f.severity || "Low";
+    var st = options(el("select", { "aria-label": "Finding status", disabled: !canWrite() || state.busy, onchange: function () { act(api("setFindingStatus", state.token, f.id, st.value)); } }), d().findingStatuses || [], f.status || "Open");
+    return el("div", { class: "row" }, [
+      el("div", { class: "main" }, [
+        el("div", { class: "title" }, [el("span", { class: "pill " + sev, text: sev }), s(f.client) || "Unnamed client"]),
+        el("div", { text: s(f.issue) }),
+        el("div", { class: "meta" }, [s(f.stage) ? "Stage as written: " + f.stage + ". " : "", s(f.evidence) ? "Evidence: " + f.evidence + ". " : "", s(f.nextAction) ? "Next: " + f.nextAction + ". " : "", s(f.ownerRole) ? "Owner role: " + f.ownerRole + ". " : "", el("span", { class: "mono", text: s(f.date) })])
+      ]),
+      st
+    ]);
+  }
+
+  /* ----- views ----- */
+  function viewSignIn() {
+    var sel = options(el("select", { id: "si_name", "aria-label": "Name", "data-draft": true }), state.names, "", "Choose your name");
+    var pw = el("input", { id: "si_pw", type: "password", autocomplete: "current-password", "aria-label": "Password", placeholder: "Password" });
+    var btn = el("button", { class: "btn", text: state.busy ? "Signing in…" : "Sign in", disabled: state.busy });
+    function go() {
+      if (!sel.value) { state.loginErr = "Choose your name."; render(); return; }
+      state.busy = true; state.loginErr = ""; render();
+      api("login", sel.value, pw.value).then(function (r) {
+        state.token = r.token; store("hive_token", r.token); state.tab = ""; state.busy = false;
+        return refresh();
+      }).catch(function (e) { state.busy = false; state.loginErr = e.message; render(); });
+    }
+    btn.addEventListener("click", go);
+    pw.addEventListener("keydown", function (e) { if (e.key === "Enter") go(); });
+    var kids = [el("h2", { text: "Sign in" }), el("p", { class: "note", text: "Choose your name and enter your password." })];
+    if (!state.names.length && !state.loginErr) kids.push(el("div", { class: "loading", text: "Loading names…" }));
+    else kids.push(el("div", { class: "form" }, [el("label", {}, ["Name", sel]), el("label", {}, ["Password", pw]), el("div", { class: "full" }, [btn])]));
+    if (state.loginErr) kids.push(el("div", { class: "err", role: "alert", text: state.loginErr }));
+    return el("div", { class: "block signin" }, kids);
+  }
+
+  function pwBox() {
+    var cur = el("input", { type: "password", autocomplete: "current-password", placeholder: "Current password", "aria-label": "Current password" });
+    var nw = el("input", { type: "password", autocomplete: "new-password", placeholder: "New password (6+ characters)", "aria-label": "New password" });
+    return el("div", { class: "block" }, [el("h2", { text: "Change your password" }), el("div", { class: "form" }, [el("label", {}, ["Current", cur]), el("label", {}, ["New", nw]), el("div", { class: "full" }, [
+      el("button", { class: "btn", text: "Update password", disabled: state.busy, onclick: function () { act(api("changeMyPassword", state.token, cur.value, nw.value), "Password updated.").then(function () { state.showPw = false; render(); }); } })
+    ])])]);
+  }
+
+  function taskCard(a) {
+    var st = options(el("select", { id: "t_st_" + a.id, "aria-label": "Status", "data-draft": true }), d().statuses || [], a.status || "Open");
+    var note = el("textarea", { id: "t_nt_" + a.id, "data-draft": true, placeholder: "What did you do? What you changed, where, and anything left." });
+    note.value = s(a.doneNote);
+    var btn = el("button", { class: "btn", text: "Save update", disabled: !canWrite() || state.busy, onclick: function () { act(api("updateTask", state.token, a.id, st.value, note.value)); } });
+    return el("div", { class: "task" }, [
+      el("div", { class: "title" }, [isOverdue(a) ? el("span", { class: "pill over", text: "Overdue" }) : null, s(a.task)]),
+      taskMeta(a, false),
+      el("div", { class: "form" }, [el("label", {}, ["Status", st]), el("label", { class: "full" }, ["What you did", note])]),
+      el("div", { class: "actions" }, [btn])
+    ]);
+  }
+  function viewMine() {
+    var mine = (d().tasks || []);
+    var open = mine.filter(function (a) { return a.status !== "Done"; }).sort(byDue);
+    var done = mine.filter(function (a) { return a.status === "Done"; }).sort(function (a, b) { return s(b.completedAt || b.updatedAt).localeCompare(s(a.completedAt || a.updatedAt)); }).slice(0, 10);
+    var kids = [el("div", { class: "block" }, [el("h2", { text: "Hi " + d().viewer }), el("p", { class: "note", text: "Update each task as you go: set the status and write what you did. Mark it Done when finished, then send your end-of-day report." })])];
+    kids.push(el("h2", { text: "To do (" + open.length + ")" }));
+    if (!open.length) kids.push(el("div", { class: "empty", text: "Nothing assigned to you right now." }));
+    open.forEach(function (a) { kids.push(taskCard(a)); });
+    if (done.length) { kids.push(el("h2", { text: "Done recently" })); kids.push(el("div", { class: "block" }, [listOrEmpty(done, assignmentRow, "")])); }
+    return el("div", { class: "panel" }, kids);
+  }
+
+  function assignForm() {
+    var task = el("textarea", { id: "as_task", "data-draft": true, placeholder: "What needs to be done" });
+    var client = el("input", { id: "as_client", "data-draft": true, placeholder: "Client (optional)" });
+    var person = options(el("select", { id: "as_person", "data-draft": true, "aria-label": "Assign to" }), d().people || [], "", "Assign to");
+    var role = options(el("select", { id: "as_role", "data-draft": true, "aria-label": "Role" }), d().roles || [], "");
+    var due = el("input", { id: "as_due", type: "date", "data-draft": true, "aria-label": "Due date" });
+    var notes = el("input", { id: "as_notes", "data-draft": true, placeholder: "Notes (optional)" });
+    var btn = el("button", { class: "btn", text: "Assign task", disabled: !canWrite() || state.busy, onclick: function () {
+      act(api("addTask", state.token, { task: task.value, client: client.value, person: person.value, ownerRole: role.value, deadline: due.value, notes: notes.value }), "Task assigned.")
+        .then(function () { if (/assigned/.test($("foot").textContent)) { ["as_task", "as_client", "as_notes", "as_due"].forEach(function (i) { if ($(i)) $(i).value = ""; }); } });
+    } });
+    return el("div", { class: "block" }, [el("h2", { text: "Assign a task" }), el("div", { class: "form" }, [el("label", { class: "full" }, ["Task", task]), el("label", {}, ["Client", client]), el("label", {}, ["Person", person]), el("label", {}, ["Role", role]), el("label", {}, ["Due", due]), el("label", { class: "full" }, ["Notes", notes]), el("div", { class: "full" }, [btn])])]);
+  }
+  function viewAssignments() {
+    var sel = options(el("select", { "aria-label": "Filter tasks", onchange: function () { state.aFilter = sel.value; render(); } }), ["Active", "All", "Done"], state.aFilter);
+    var pf = options(el("select", { "aria-label": "Filter by person", onchange: function () { state.pFilter = pf.value; render(); } }), d().people || [], state.pFilter || "", "Everyone");
+    var items = (d().tasks || []).filter(function (a) {
+      var okS = state.aFilter === "All" || (state.aFilter === "Done" ? a.status === "Done" : a.status !== "Done");
+      return okS && (!state.pFilter || a.person === state.pFilter);
+    }).sort(byDue);
+    return el("div", { class: "panel" }, [assignForm(), el("div", { class: "block" }, [el("div", { class: "filters" }, ["Show", sel, pf]), listOrEmpty(items, assignmentRow, "No tasks here.")])]);
+  }
+  function viewToday() {
+    var plan = (d().tasks || []).filter(function (a) { return a.status !== "Done" && (a.date === today() || isOverdue(a)); }).sort(byDue);
+    var high = (d().findings || []).filter(function (f) { return isOpenF(f) && f.severity === "High"; });
+    return el("div", { class: "two" }, [
+      el("div", { class: "block" }, [el("h2", { text: "Today's tasks and overdue" }), listOrEmpty(plan, assignmentRow, "Nothing due today.")]),
+      el("div", { class: "block" }, [el("h2", { text: "High findings from Comb" }), listOrEmpty(high, findingRow, "No open High findings.")])
+    ]);
+  }
+  function viewFindings() {
+    var sel = options(el("select", { "aria-label": "Filter findings", onchange: function () { state.fFilter = sel.value; render(); } }), ["Open", "All", "Done", "Ignore"], state.fFilter);
+    var rank = { High: 0, Medium: 1, Low: 2 };
+    var items = (d().findings || []).filter(function (f) { return state.fFilter === "All" || (state.fFilter === "Open" ? isOpenF(f) : f.status === state.fFilter); })
+      .sort(function (a, b) { return (rank[a.severity] == null ? 3 : rank[a.severity]) - (rank[b.severity] == null ? 3 : rank[b.severity]); });
+    return el("div", { class: "block" }, [el("div", { class: "filters" }, ["Show", sel]), listOrEmpty(items, findingRow, "No findings here.")]);
+  }
+  function viewEod() {
+    var L = lvl(), kids = [];
+    if (L !== "Admin") {
+      var who = L === "Organizer" ? options(el("select", { id: "eod_person", "data-draft": true, "aria-label": "Person" }), d().people || [], d().viewer) : el("input", { id: "eod_person", value: d().viewer, readonly: true, "aria-label": "Name" });
+      var done = el("textarea", { id: "eod_done", "data-draft": true, placeholder: "What got done today (clients and tasks). Add your Loom link." });
+      var blk = el("textarea", { id: "eod_blk", "data-draft": true, placeholder: "Blockers, or none" });
+      var next = el("textarea", { id: "eod_next", "data-draft": true, placeholder: "Next" });
+      var btn = el("button", { class: "btn", text: "Send report", disabled: !canWrite() || state.busy, onclick: function () {
+        act(api("addEod", state.token, { person: who.value, done: done.value, blockers: blk.value, next: next.value }), "Report sent.")
+          .then(function () { if (/sent/.test($("foot").textContent)) ["eod_done", "eod_blk", "eod_next"].forEach(function (i) { if ($(i)) $(i).value = ""; }); });
+      } });
+      kids.push(el("div", { class: "block" }, [el("h2", { text: "Today's end-of-day report" }), el("div", { class: "form" }, [el("label", { class: "full" }, ["Name", who]), el("label", { class: "full" }, ["Done", done]), el("label", {}, ["Blockers", blk]), el("label", {}, ["Next", next]), el("div", { class: "full" }, [btn])])]));
+    }
+    var pf = null;
+    if (L !== "Expert") pf = options(el("select", { "aria-label": "Filter by person", onchange: function () { state.ePerson = pf.value; render(); } }), d().people || [], state.ePerson || "", "Everyone");
+    var items = (d().eod || []).filter(function (e) { return !state.ePerson || L === "Expert" || e.person === state.ePerson; }).sort(newest("createdAt")).slice(0, 80);
+    var list = listOrEmpty(items, function (e) {
+      return el("div", { class: "row" }, [el("div", { class: "main" }, [
+        el("div", { class: "title", text: s(e.person) + " · " + s(e.date) }),
+        el("div", { class: "meta", text: "Done: " + s(e.done) }),
+        s(e.blockers) ? el("div", { class: "meta", text: "Blockers: " + e.blockers }) : null,
+        s(e.next) ? el("div", { class: "meta", text: "Next: " + e.next }) : null
+      ])]);
+    }, "No reports yet.");
+    kids.push(el("div", { class: "block" }, [el("h2", { text: L === "Expert" ? "Your past reports" : "End-of-day reports" }), pf ? el("div", { class: "filters" }, ["Show", pf]) : null, list]));
+    return el("div", { class: L === "Admin" ? "panel" : "two" }, kids);
+  }
+  function viewNotes() {
+    var applies = options(el("select", { id: "n_applies", "data-draft": true, "aria-label": "Applies to" }), ["Both", "Comb", "Waggle"], "Both");
+    var text = el("textarea", { id: "n_text", "data-draft": true, placeholder: "For example: Ignore the Friends Account rows." });
+    var btn = el("button", { class: "btn", text: "Save note", disabled: !canWrite() || state.busy, onclick: function () {
+      act(api("addNote", state.token, applies.value, text.value), "Note saved.").then(function () { if (/saved/.test($("foot").textContent) && $("n_text")) $("n_text").value = ""; });
+    } });
+    var items = (d().notes || []).slice().sort(newest("createdAt"));
+    var list = listOrEmpty(items, function (n) {
+      return el("div", { class: "row" }, [el("div", { class: "main" }, [el("div", { class: "title", text: s(n.text) }), el("div", { class: "meta", text: s(n.appliesTo) + " · " + s(n.date) })]),
+        el("button", { class: "btn", text: "Remove", disabled: !canWrite() || state.busy, onclick: function () { act(api("deleteNote", state.token, n.id), "Note removed."); } })]);
+    }, "No notes yet.");
+    return el("div", { class: "two" }, [
+      el("div", { class: "block" }, [el("h2", { text: "Tell the agents once" }), el("p", { class: "note", text: "Comb and Waggle read these before every run." }), el("div", { class: "form" }, [el("label", {}, ["Applies to", applies]), el("label", { class: "full" }, ["Note", text]), el("div", { class: "full" }, [btn])])]),
+      el("div", { class: "block" }, [el("h2", { text: "Current notes" }), list])
+    ]);
+  }
+  function viewTeam() {
+    var rows = listOrEmpty((d().team || []).slice().sort(function (a, b) { return s(a.name).localeCompare(s(b.name)); }), function (m) {
+      var lv = options(el("select", { "aria-label": "Level for " + m.name, disabled: state.busy, onchange: function () { act(api("setLevel", state.token, m.name, lv.value), "Level updated."); } }), d().levels || [], m.level);
+      var pw = el("input", { id: "pw_" + m.name, type: "password", "data-draft": true, autocomplete: "new-password", placeholder: "New password", "aria-label": "New password for " + m.name });
+      var setBtn = el("button", { class: "btn", text: "Set password", disabled: state.busy, onclick: function () {
+        act(api("setPassword", state.token, m.name, pw.value), "Password updated for " + m.name + ".").then(function () { if ($("pw_" + m.name)) $("pw_" + m.name).value = ""; });
+      } });
+      return el("div", { class: "row" }, [el("div", { class: "main" }, [el("div", { class: "title", text: m.name }), el("div", { class: "meta", text: (s(m.role) ? m.role + " · " : "") + (m.hasPassword ? "can sign in" : "no password yet") }), pw]), el("div", { class: "ctl" }, [lv, setBtn])]);
+    }, "No team members yet.");
+    var nm = el("input", { id: "tm_name", "data-draft": true, placeholder: "Name" });
+    var nl = options(el("select", { id: "tm_level", "data-draft": true, "aria-label": "Level" }), d().levels || [], "Expert");
+    var nr = options(el("select", { id: "tm_role", "data-draft": true, "aria-label": "Role" }), d().roles || [], "", "Role (optional)");
+    var add = el("button", { class: "btn", text: "Add person", disabled: state.busy, onclick: function () { act(api("addPerson", state.token, nm.value, nl.value, nr.value), "Person added. Now set their password.").then(function () { if (/added/.test($("foot").textContent) && $("tm_name")) $("tm_name").value = ""; }); } });
+    return el("div", { class: "panel" }, [
+      el("div", { class: "block" }, [el("h2", { text: "Team and passwords" }), el("p", { class: "note", text: "Experts see only their own tasks. Admins see all tasks and reports. Organizers see everything. Passwords are checked by Google and stored scrambled in the Team tab of your sheet." }), rows]),
+      el("div", { class: "block" }, [el("h2", { text: "Add a person" }), el("div", { class: "form" }, [el("label", {}, ["Name", nm]), el("label", {}, ["Level", nl]), el("label", {}, ["Role", nr]), el("div", { class: "full" }, [add])])])
+    ]);
+  }
+
+  var VIEWS = { today: viewToday, findings: viewFindings, assignments: viewAssignments, eod: viewEod, notes: viewNotes, team: viewTeam, mine: viewMine };
+
+  function render() {
+    var active = document.activeElement;
+    var keepId = active && active.id && active.hasAttribute && active.hasAttribute("data-draft") ? active.id : null;
+    var drafts = {};
+    Array.prototype.forEach.call(document.querySelectorAll("[data-draft]"), function (e) { if (e.id) drafts[e.id] = e.value; });
+    renderHeader(); renderBanner(); renderSummary(); renderTabs();
+    var p = $("panel"); p.textContent = "";
+    if (!state.token || !state.data) {
+      if (state.token && !state.data) p.appendChild(el("div", { class: "loading", text: "Loading your page…" }));
+      else p.appendChild(viewSignIn());
+    } else {
+      if (state.showPw) p.appendChild(pwBox());
+      p.appendChild((VIEWS[state.tab] || viewMine)());
+    }
+    Object.keys(drafts).forEach(function (i) { var e = $(i); if (e && !e.readOnly && drafts[i] !== "") e.value = drafts[i]; });
+    if (keepId && $(keepId)) $(keepId).focus();
+  }
+
+  function start() {
+    state.token = load("hive_token");
+    if (state.token) { render(); refresh().then(function () { if (!state.data && !state.token) loadNames(); }); }
+    else loadNames();
+    setInterval(function () {
+      if (!state.token || state.busy || document.hidden) return;
+      var a = document.activeElement;
+      if (a && (a.tagName === "TEXTAREA" || a.tagName === "INPUT")) return;
+      if (Date.now() - state.lastLoad > 90000) refresh();
+    }, 30000);
+  }
+  start();
+})();
+</script>
+</body>
+</html>
