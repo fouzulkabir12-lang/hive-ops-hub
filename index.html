@@ -101,6 +101,14 @@ textarea { width: 100%; min-height: 64px; resize: vertical; }
 label { display: flex; flex-direction: column; gap: 4px; font-size: 13px; color: var(--muted); }
 .note { font-size: 13px; color: var(--muted); }
 @media (max-width: 520px) { .row { grid-template-columns: 1fr; } }
+.voice-bar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.voice-bar audio { height: 36px; max-width: 100%; }
+.btn.alt { background: none; color: var(--fg); border: 1px solid var(--line); }
+.btn.rec { background: #c62828; color: #fff; }
+.rec-dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; background: #c62828; margin-right: 6px; animation: pulse 1s infinite; }
+@keyframes pulse { 50% { opacity: 0.3; } }
+.vtask { border-top: 1px solid var(--line); padding-top: 10px; }
+.vgroup { font-weight: 600; margin-top: 6px; }
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }
 
 /* Hive brand: deep pink, gold, plum-black and cream */
@@ -405,6 +413,109 @@ body { margin: 0; }
     } });
     return el("div", { class: "block" }, [el("h2", { text: "Assign a task" }), el("div", { class: "form" }, [el("label", { class: "full" }, ["Task", task]), el("label", {}, ["Client", client]), el("label", {}, ["Person", person]), el("label", {}, ["Role", role]), el("label", {}, ["Due", due]), el("label", { class: "full" }, ["Notes", notes]), el("div", { class: "full" }, [btn])])]);
   }
+  /* ----- voice tasks: speak a brief, Gemini splits it into tasks, review, assign ----- */
+  var MAX_AUDIO = 15 * 1024 * 1024;
+  var rec = { recorder: null, chunks: [], timer: null };
+  function vs() { return state.voice || (state.voice = { recording: false, secs: 0, audio: "", mime: "", url: "", typed: "", transcript: "", tasks: [], working: false }); }
+  function mmss(n) { return Math.floor(n / 60) + ":" + ("0" + (n % 60)).slice(-2); }
+  function resetVoice() { if (vs().url) URL.revokeObjectURL(vs().url); state.voice = null; }
+  function setAudio(blob) {
+    var v = vs();
+    v.recording = false;
+    if (blob.size > MAX_AUDIO) { foot("That voice note is too long. Keep it under about 15 minutes."); render(); return; }
+    var r = new FileReader();
+    r.onload = function () {
+      var url = String(r.result);
+      if (v.url) URL.revokeObjectURL(v.url);
+      v.audio = url.slice(url.indexOf(",") + 1); v.mime = blob.type || "audio/webm"; v.url = URL.createObjectURL(blob);
+      foot("Voice note ready. Press Make tasks.", true); render();
+    };
+    r.readAsDataURL(blob);
+  }
+  function startRec() {
+    if (!navigator.mediaDevices || !window.MediaRecorder) { foot("This browser can't record. Upload a voice note instead."); return; }
+    navigator.mediaDevices.getUserMedia({ audio: true }).then(function (stream) {
+      var type = ["audio/webm;codecs=opus", "audio/ogg;codecs=opus", "audio/mp4"].filter(function (t) { return MediaRecorder.isTypeSupported(t); })[0];
+      var mr = new MediaRecorder(stream, type ? { mimeType: type } : undefined);
+      rec.recorder = mr; rec.chunks = [];
+      mr.ondataavailable = function (e) { if (e.data && e.data.size) rec.chunks.push(e.data); };
+      mr.onstop = function () {
+        stream.getTracks().forEach(function (t) { t.stop(); });
+        clearInterval(rec.timer);
+        setAudio(new Blob(rec.chunks, { type: mr.mimeType || type || "audio/webm" }));
+      };
+      mr.start(1000);
+      var v = vs(); v.recording = true; v.secs = 0; foot("");
+      rec.timer = setInterval(function () { v.secs++; var t = $("vc_time"); if (t) t.textContent = mmss(v.secs); }, 1000);
+      render();
+    }).catch(function () { foot("The microphone is blocked. Allow it for this site, or upload a voice note."); });
+  }
+  function stopRec() { if (rec.recorder && rec.recorder.state !== "inactive") rec.recorder.stop(); }
+  function makeTasks() {
+    var v = vs();
+    v.working = true; state.busy = true; foot("Gemini is sorting out the tasks…", true); render();
+    api("voiceTasks", state.token, v.audio, v.mime, v.typed).then(function (r) {
+      v.transcript = r.transcript || ""; v.tasks = r.tasks || [];
+      foot(v.tasks.length ? v.tasks.length + " tasks ready. Check them, then assign." : "Gemini found no tasks in that. Try again with more detail.", !!v.tasks.length);
+    }).catch(function (e) { foot(e.message); })
+      .then(function () { v.working = false; state.busy = false; render(); });
+  }
+  function voiceTaskRow(t, i) {
+    var v = vs();
+    function bind(field) { return function (e) { t[field] = e.target.value; }; }
+    var person = options(el("select", { id: "vt_p_" + i, "aria-label": "Assign to", onchange: function (e) { t.person = e.target.value; render(); } }), d().people || [], t.person, "Choose person");
+    var task = el("textarea", { id: "vt_t_" + i, "aria-label": "Task", oninput: bind("task") }); task.value = s(t.task);
+    var client = el("input", { id: "vt_c_" + i, placeholder: "Client (optional)", value: s(t.client), oninput: bind("client") });
+    var role = options(el("select", { id: "vt_r_" + i, "aria-label": "Role", onchange: bind("ownerRole") }), d().roles || [], t.ownerRole, "Role");
+    var due = el("input", { id: "vt_d_" + i, type: "date", "aria-label": "Due date", value: s(t.deadline), oninput: bind("deadline") });
+    var notes = el("input", { id: "vt_n_" + i, placeholder: "Notes (optional)", value: s(t.notes), oninput: bind("notes") });
+    var rm = el("button", { class: "btn alt", text: "Remove", onclick: function () { v.tasks.splice(i, 1); render(); } });
+    return el("div", { class: "vtask form" }, [el("label", { class: "full" }, ["Task", task]), el("label", {}, ["Person", person]), el("label", {}, ["Client", client]),
+      el("label", {}, ["Role", role]), el("label", {}, ["Due", due]), el("label", { class: "full" }, ["Notes", notes]), el("div", { class: "full" }, [rm])]);
+  }
+  function voiceBlock() {
+    var v = vs(), off = !canWrite() || state.busy;
+    var kids = [el("h2", { text: "Assign by voice" }),
+      el("p", { class: "note", text: "Talk through everything in one go: who does what, for which client, and by when. Gemini splits it into tasks for each person. You check them before they're assigned." })];
+    var bar = el("div", { class: "voice-bar" });
+    if (v.recording) {
+      bar.appendChild(el("span", {}, [el("span", { class: "rec-dot" }), el("span", { id: "vc_time", text: mmss(v.secs) })]));
+      bar.appendChild(el("button", { class: "btn rec", text: "Stop recording", onclick: stopRec }));
+    } else {
+      bar.appendChild(el("button", { class: "btn", text: v.audio ? "Record again" : "🎙 Start recording", disabled: off, onclick: startRec }));
+      var file = el("input", { type: "file", accept: "audio/*", hidden: true, onchange: function (e) { var f = e.target.files[0]; if (f) setAudio(f); } });
+      bar.appendChild(file);
+      bar.appendChild(el("button", { class: "btn alt", text: "Upload voice note", disabled: off, onclick: function () { file.click(); } }));
+      if (v.url) bar.appendChild(el("audio", { controls: true, src: v.url }));
+    }
+    kids.push(bar);
+    var typed = el("textarea", { id: "vt_typed", placeholder: "Or type or paste the brief here (optional, adds to the voice note)", oninput: function (e) { v.typed = e.target.value; var b = $("vt_make"); if (b) b.disabled = off || (!v.audio && !v.typed.trim()); } });
+    typed.value = v.typed;
+    kids.push(typed);
+    kids.push(el("div", { class: "voice-bar" }, [
+      el("button", { id: "vt_make", class: "btn", text: v.working ? "Making tasks…" : "Make tasks", disabled: off || v.recording || (!v.audio && !v.typed.trim()), onclick: makeTasks }),
+      (v.audio || v.typed || v.tasks.length) ? el("button", { class: "btn alt", text: "Clear", disabled: state.busy || v.recording, onclick: function () { resetVoice(); foot(""); render(); } }) : null
+    ]));
+    if (v.transcript) kids.push(el("details", {}, [el("summary", { text: "What Gemini heard" }), el("p", { class: "note", text: v.transcript })]));
+    if (v.tasks.length) {
+      var last = null;
+      v.tasks.forEach(function (t, i) {
+        var who = t.person || "Not assigned yet";
+        if (who !== last) { kids.push(el("div", { class: "vgroup", text: who })); last = who; }
+        kids.push(voiceTaskRow(t, i));
+      });
+      var missing = v.tasks.filter(function (t) { return !t.person; }).length;
+      kids.push(el("div", { class: "voice-bar" }, [
+        el("button", { class: "btn", text: "Assign all " + v.tasks.length + " tasks", disabled: off || !!missing, onclick: function () {
+          var n = v.tasks.length;
+          act(api("addTasks", state.token, v.tasks), n + " tasks assigned.").then(function () { if (/tasks assigned/.test($("foot").textContent)) { resetVoice(); render(); } });
+        } }),
+        missing ? el("span", { class: "note", text: "Choose a person for " + missing + (missing === 1 ? " task" : " tasks") + " first." }) : null
+      ]));
+    }
+    return el("div", { class: "block" }, kids);
+  }
+
   function viewAssignments() {
     var sel = options(el("select", { "aria-label": "Filter tasks", onchange: function () { state.aFilter = sel.value; render(); } }), ["Active", "All", "Done"], state.aFilter);
     var pf = options(el("select", { "aria-label": "Filter by person", onchange: function () { state.pFilter = pf.value; render(); } }), d().people || [], state.pFilter || "", "Everyone");
@@ -412,7 +523,7 @@ body { margin: 0; }
       var okS = state.aFilter === "All" || (state.aFilter === "Done" ? a.status === "Done" : a.status !== "Done");
       return okS && (!state.pFilter || a.person === state.pFilter);
     }).sort(byDue);
-    return el("div", { class: "panel" }, [assignForm(), el("div", { class: "block" }, [el("div", { class: "filters" }, ["Show", sel, pf]), listOrEmpty(items, assignmentRow, "No tasks here.")])]);
+    return el("div", { class: "panel" }, [voiceBlock(), assignForm(), el("div", { class: "block" }, [el("div", { class: "filters" }, ["Show", sel, pf]), listOrEmpty(items, assignmentRow, "No tasks here.")])]);
   }
   function viewToday() {
     var plan = (d().tasks || []).filter(function (a) { return a.status !== "Done" && (a.date === today() || isOverdue(a)); }).sort(byDue);

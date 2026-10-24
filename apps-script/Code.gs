@@ -298,6 +298,109 @@ function reassignTask(token, id, person) {
   });
 }
 
+/* ---------- Voice tasks (Gemini) ----------
+ * Script properties (Project Settings, Script properties):
+ *   GEMINI_API_KEY           required, from aistudio.google.com
+ *   GEMINI_MODEL             optional, defaults to VOICE.model
+ *   HIVE_AGENT_INSTRUCTIONS  optional, the instructions of your Hive Gem, added to the prompt
+ */
+var VOICE = { model: 'gemini-2.5-flash', maxAudioBytes: 15 * 1024 * 1024, maxTasks: 40 };
+
+function assignable_() { return members_().filter(function (m) { return normLevel_(m.level) !== 'Admin'; }); }
+
+function voiceTasks(token, audio, mimeType, typed) {
+  var me = who_(token);
+  need_(me, ['Admin', 'Organizer']);
+  var key = props_().getProperty('GEMINI_API_KEY');
+  if (!key) throw new Error('Voice tasks are not set up yet: add GEMINI_API_KEY to the Apps Script project settings.');
+  audio = String(audio || '');
+  typed = String(typed || '').trim().slice(0, 20000);
+  if (!audio && !typed) throw new Error('Record a voice note or type what needs doing.');
+  if (audio.length * 3 / 4 > VOICE.maxAudioBytes) throw new Error('That voice note is too long. Keep it under about 15 minutes.');
+
+  var people = assignable_();
+  var custom = String(props_().getProperty('HIVE_AGENT_INSTRUCTIONS') || '').trim();
+  var system = [
+    'You turn an operations manager\'s spoken brief into clear, assignable tasks for the team of Powered by H.I.V.E.',
+    custom ? 'Instructions from the Hive agent:\n' + custom : '',
+    'Team members you may assign (use these exact names; names in the recording may be misheard, so match each to the closest name here): ' +
+      people.map(function (m) { return m.name + (m.role ? ' (' + m.role + ')' : ''); }).join(', ') + '.',
+    'Roles: ' + HUB.roles.join(', ') + '. Set ownerRole to one of these only when it is clear, otherwise leave it empty.',
+    'Today is ' + Utilities.formatDate(new Date(), tz_(), 'EEEE yyyy-MM-dd') + '. Turn spoken dates such as "tomorrow" or "by Friday" into YYYY-MM-DD in deadline; leave deadline empty when no date was said.',
+    'Split the brief into separate tasks. Each task starts with a verb and is specific and refined, but keeps every detail that was said (links, numbers, client names). ' +
+      'One person per task: when a task is for several people, add one copy for each of them. When nobody was named for a task, set person to an empty string. ' +
+      'Group the tasks by person in the order people were first mentioned, and order each person\'s tasks by priority. ' +
+      'Put the client or business name in client when one is mentioned. Put useful context or priority in notes. Put the full transcript of the recording in transcript.'
+  ].filter(String).join('\n\n');
+
+  var schema = {
+    type: 'OBJECT', required: ['tasks'],
+    properties: {
+      transcript: { type: 'STRING' },
+      tasks: { type: 'ARRAY', items: { type: 'OBJECT', required: ['person', 'task'], properties: {
+        person: { type: 'STRING' }, task: { type: 'STRING' }, client: { type: 'STRING' },
+        ownerRole: { type: 'STRING' }, deadline: { type: 'STRING' }, notes: { type: 'STRING' } } } }
+    }
+  };
+  var parts = [];
+  if (audio) parts.push({ inline_data: { mime_type: String(mimeType || 'audio/webm').split(';')[0], data: audio } });
+  parts.push({ text: (typed ? 'Typed brief:\n' + typed + '\n\n' : '') + (audio ? 'Listen to the voice note, then make the tasks.' : 'Make the tasks.') });
+
+  var model = props_().getProperty('GEMINI_MODEL') || VOICE.model;
+  var res = UrlFetchApp.fetch('https://generativelanguage.googleapis.com/v1beta/models/' + encodeURIComponent(model) + ':generateContent', {
+    method: 'post', contentType: 'application/json', muteHttpExceptions: true, headers: { 'x-goog-api-key': key },
+    payload: JSON.stringify({
+      system_instruction: { parts: [{ text: system }] },
+      contents: [{ role: 'user', parts: parts }],
+      generationConfig: { temperature: 0.2, responseMimeType: 'application/json', responseSchema: schema }
+    })
+  });
+  var body = {};
+  try { body = JSON.parse(res.getContentText()); } catch (e) {}
+  if (res.getResponseCode() !== 200) throw new Error('Gemini could not process that: ' + ((body.error && body.error.message) || 'error ' + res.getResponseCode()));
+  var text = ((((body.candidates || [])[0] || {}).content || {}).parts || []).map(function (p) { return p.text || ''; }).join('');
+  var out;
+  try { out = JSON.parse(text); } catch (e) { throw new Error('Gemini did not return tasks. Try again.'); }
+
+  var byName = {};
+  people.forEach(function (m) { byName[m.name.toLowerCase()] = m.name; });
+  var tasks = (out.tasks || []).slice(0, VOICE.maxTasks).map(function (t) {
+    return {
+      person: byName[String(t.person || '').trim().toLowerCase()] || '',
+      task: String(t.task || '').trim().slice(0, 2000), client: String(t.client || '').trim().slice(0, 200),
+      ownerRole: HUB.roles.indexOf(t.ownerRole) >= 0 ? t.ownerRole : '',
+      deadline: /^\d{4}-\d{2}-\d{2}$/.test(String(t.deadline || '')) ? t.deadline : '',
+      notes: String(t.notes || '').trim().slice(0, 1000)
+    };
+  }).filter(function (t) { return t.task; });
+  return { transcript: String(out.transcript || typed).slice(0, 20000), tasks: tasks };
+}
+
+function addTasks(token, list) {
+  var me = who_(token);
+  need_(me, ['Admin', 'Organizer']);
+  list = Array.isArray(list) ? list.slice(0, VOICE.maxTasks) : [];
+  if (!list.length) throw new Error('There are no tasks to assign.');
+  var byName = {};
+  members_().forEach(function (m) { byName[m.name.toLowerCase()] = m.name; });
+  var rows = list.map(function (o) {
+    o = o || {};
+    var task = String(o.task || '').trim(), person = byName[String(o.person || '').trim().toLowerCase()];
+    if (!task) throw new Error('One of the tasks is empty. Fill it in or remove it.');
+    if (!person) throw new Error('Choose who this task is for: ' + task.slice(0, 60));
+    return { person: person, task: task.slice(0, 2000), client: String(o.client || '').slice(0, 200), ownerRole: String(o.ownerRole || ''),
+      deadline: String(o.deadline || ''), notes: String(o.notes || '').slice(0, 1000) };
+  });
+  return withLock_(function () {
+    var t = readTable_('Tasks'), now = nowIso_();
+    rows.forEach(function (r) {
+      appendRow_(t, { id: newId_('t_'), date: today_(), person: r.person, task: r.task, client: r.client, ownerRole: r.ownerRole,
+        deadline: r.deadline, status: 'Open', source: me.name + ' (voice)', notes: r.notes, createdAt: now });
+    });
+    return rows.length;
+  });
+}
+
 function addEod(token, o) {
   var me = who_(token);
   o = o || {};
@@ -456,7 +559,7 @@ function seedHub_(seed) {
 function apiFns_() {
   return {
     getNames: getNames, login: login, logout: logout, getData: getData,
-    updateTask: updateTask, addTask: addTask, reassignTask: reassignTask, addEod: addEod,
+    updateTask: updateTask, addTask: addTask, addTasks: addTasks, voiceTasks: voiceTasks, reassignTask: reassignTask, addEod: addEod,
     setFindingStatus: setFindingStatus, addNote: addNote, deleteNote: deleteNote,
     addPerson: addPerson, setLevel: setLevel, setPassword: setPassword, changeMyPassword: changeMyPassword
   };
