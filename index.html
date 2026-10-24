@@ -470,7 +470,7 @@ body { margin: 0; }
     var v = vs();
     v.working = true; state.busy = true; foot("Gemini is sorting out the tasks…", true); render();
     api("voiceTasks", state.token, v.audio, v.mime, v.typed).then(function (r) {
-      v.transcript = r.transcript || ""; v.tasks = r.tasks || [];
+      v.transcript = r.transcript || ""; v.understood = r.understood || ""; v.tasks = r.tasks || [];
       foot(v.tasks.length ? v.tasks.length + " tasks ready. Check them, then assign." : "Gemini found no tasks in that. Try again with more detail.", !!v.tasks.length);
     }).catch(function (e) { foot(e.message); })
       .then(function () { v.working = false; state.busy = false; render(); });
@@ -479,13 +479,14 @@ body { margin: 0; }
     var v = vs();
     function bind(field) { return function (e) { t[field] = e.target.value; }; }
     var person = options(el("select", { id: "vt_p_" + i, "aria-label": "Assign to", onchange: function (e) { t.person = e.target.value; render(); } }), d().people || [], t.person, "Choose person");
-    var task = el("textarea", { id: "vt_t_" + i, "aria-label": "Task", oninput: bind("task") }); task.value = s(t.task);
+    var moving = t.action === "reassign";
+    var task = el("textarea", { id: "vt_t_" + i, "aria-label": "Task", oninput: bind("task"), readonly: moving }); task.value = s(t.task);
     var client = el("input", { id: "vt_c_" + i, placeholder: "Client (optional)", value: s(t.client), oninput: bind("client") });
     var role = options(el("select", { id: "vt_r_" + i, "aria-label": "Role", onchange: bind("ownerRole") }), d().roles || [], t.ownerRole, "Role");
     var due = el("input", { id: "vt_d_" + i, type: "date", "aria-label": "Due date", value: s(t.deadline), oninput: bind("deadline") });
     var notes = el("input", { id: "vt_n_" + i, placeholder: "Notes (optional)", value: s(t.notes), oninput: bind("notes") });
     var rm = el("button", { class: "btn alt", text: "Remove", onclick: function () { v.tasks.splice(i, 1); render(); } });
-    return el("div", { class: "vtask form" }, [el("label", { class: "full" }, ["Task", task]), el("label", {}, ["Person", person]), el("label", {}, ["Client", client]),
+    return el("div", { class: "vtask form" }, [el("label", { class: "full" }, [moving ? "Move existing task from " + (t.from || "nobody") + " (wording stays the same)" : "New task", task]), el("label", {}, ["Person", person]), el("label", {}, ["Client", client]),
       el("label", {}, ["Role", role]), el("label", {}, ["Due", due]), el("label", { class: "full" }, ["Notes", notes]), el("div", { class: "full" }, [rm])]);
   }
   function voiceBlock() {
@@ -511,6 +512,7 @@ body { margin: 0; }
       el("button", { id: "vt_make", class: "btn", text: v.working ? "Making tasks…" : "Make tasks", disabled: off || v.recording || (!v.audio && !v.typed.trim()), onclick: makeTasks }),
       (v.audio || v.typed || v.tasks.length) ? el("button", { class: "btn alt", text: "Clear", disabled: state.busy || v.recording, onclick: function () { resetVoice(); foot(""); render(); } }) : null
     ]));
+    if (v.understood) kids.push(el("div", { class: "msg model" }, [el("b", { text: "What Gemini understood: " }), v.understood]));
     if (v.transcript) kids.push(el("details", {}, [el("summary", { text: "What Gemini heard" }), el("p", { class: "note", text: v.transcript })]));
     if (v.tasks.length) {
       var last = null;
@@ -719,6 +721,10 @@ body { margin: 0; }
       var b = el("div", { class: "msg model" }, [md(m.text)]);
       b.appendChild(el("div", { class: "msg-tools" }, [
         el("button", { text: "Copy", onclick: function (e) { try { navigator.clipboard.writeText(m.text); e.target.textContent = "Copied"; } catch (x) {} } }),
+        canWrite() ? el("button", { text: "➕ Make tasks from this", onclick: function () {
+          var v = vs(); v.typed = "Turn this Hive AI answer into tasks for the team:\n" + m.text; v.audio = ""; v.tasks = [];
+          state.tab = "assignments"; render(); makeTasks();
+        } }) : null,
         window.speechSynthesis ? el("button", { text: "🔊 Listen", onclick: function () { speakText(m.text); } }) : null
       ]));
       log.appendChild(b);

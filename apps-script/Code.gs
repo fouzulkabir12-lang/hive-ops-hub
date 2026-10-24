@@ -322,36 +322,50 @@ function voiceTasks_(audio, mimeType, typed) {
   if (audio.length * 3 / 4 > VOICE.maxAudioBytes) throw new Error('That voice note is too long. Keep it under about 15 minutes.');
 
   var people = assignable_();
+  var ops = opsContext_();
   var system = [
-    'Background knowledge about H.I.V.E. (from the HIVE Master Ops Gem):\n' + hiveBrain_(),
-    'YOUR JOB NOW: turn the operations manager\'s spoken brief into clear, assignable tasks for the team. Ignore the output formats above; reply only in the JSON shape asked for.',
+    'Background knowledge about H.I.V.E. (from the HIVE Master Ops Gem and the daily chat):\n' + hiveBrain_(),
+    ops.text,
+    'YOUR JOB NOW: you are the operations manager\'s chief of staff. Do NOT transcribe the brief. Understand what the manager wants done and ' +
+      'turn it into the actual pieces of work, using the task history, end-of-day reports, the Client Master Sheet and the knowledge above. ' +
+      'Ignore the output formats above; reply only in the JSON shape asked for.',
+    'How to handle instructions:\n' +
+      '- About existing work ("reassign Thursday\'s tasks to Chris", "give Kamran what Merab didn\'t finish", "repeat yesterday\'s tasks"): find the matching tasks in TASK HISTORY by weekday, date, person and status, ' +
+      'and return one item per matching task. Use action "reassign" with that task\'s ID in sourceId when the existing task should move to someone else (keep its wording); ' +
+      'use action "create" with the copied wording when the work should be done again or duplicated.\n' +
+      '- Needing knowledge ("set up onboarding for Nekosha", "chase everyone who has not paid", "what is left for A2P"): use the knowledge, SOPs and client data to write each concrete step as its own task, with client names filled in.\n' +
+      '- Plain new work: write it as a clear task that starts with a verb and keeps every detail that was said (links, numbers, client names).\n' +
+      '- Never return a task that only restates the instruction, such as "Review Thursday\'s tasks and do them". If nothing matches, return no task for it and say so in understood.',
     'Team members you may assign (use these exact names; names in the recording may be misheard, so match each to the closest name here): ' +
       people.map(function (m) { return m.name + (m.role ? ' (' + m.role + ')' : ''); }).join(', ') + '.',
     'Roles: ' + HUB.roles.join(', ') + '. Set ownerRole to one of these only when it is clear, otherwise leave it empty.',
-    'Today is ' + Utilities.formatDate(new Date(), tz_(), 'EEEE yyyy-MM-dd') + '. Turn spoken dates such as "tomorrow" or "by Friday" into YYYY-MM-DD in deadline; leave deadline empty when no date was said.',
-    'Split the brief into separate tasks. Each task starts with a verb and is specific and refined, but keeps every detail that was said (links, numbers, client names). ' +
-      'One person per task: when a task is for several people, add one copy for each of them. When nobody was named for a task, set person to an empty string. ' +
-      'Group the tasks by person in the order people were first mentioned, and order each person\'s tasks by priority. ' +
-      'Put the client or business name in client when one is mentioned. Put useful context or priority in notes. Put the full transcript of the recording in transcript.'
+    'Today is ' + Utilities.formatDate(new Date(), tz_(), 'EEEE yyyy-MM-dd') + '. A weekday name means the most recent one before today unless the manager says "next". ' +
+      'Turn spoken deadlines such as "tomorrow" or "by Friday" into YYYY-MM-DD in deadline; leave deadline empty when no date was said.',
+    'One person per item: when work is for several people, add one item for each. When nobody was named, set person to an empty string. ' +
+      'Group items by person in the order people were first mentioned, and order each person\'s items by priority. Put the client or business name in client. ' +
+      'Put useful context, the source (for example "from Merab\'s task on Thu Oct 22") or priority in notes. ' +
+      'In understood, write 1-3 short sentences saying what you understood and anything you could not find or were unsure about. Put the full transcript of the recording in transcript.'
   ].filter(String).join('\n\n');
 
   var schema = {
-    type: 'OBJECT', required: ['tasks'],
+    type: 'OBJECT', required: ['tasks', 'understood'],
     properties: {
+      understood: { type: 'STRING' },
       transcript: { type: 'STRING' },
-      tasks: { type: 'ARRAY', items: { type: 'OBJECT', required: ['person', 'task'], properties: {
+      tasks: { type: 'ARRAY', items: { type: 'OBJECT', required: ['action', 'person', 'task'], properties: {
+        action: { type: 'STRING', enum: ['create', 'reassign'] }, sourceId: { type: 'STRING' },
         person: { type: 'STRING' }, task: { type: 'STRING' }, client: { type: 'STRING' },
         ownerRole: { type: 'STRING' }, deadline: { type: 'STRING' }, notes: { type: 'STRING' } } } }
     }
   };
   var parts = [];
   if (audio) parts.push({ inline_data: { mime_type: String(mimeType || 'audio/webm').split(';')[0], data: audio } });
-  parts.push({ text: (typed ? 'Typed brief:\n' + typed + '\n\n' : '') + (audio ? 'Listen to the voice note, then make the tasks.' : 'Make the tasks.') });
+  parts.push({ text: (typed ? 'Typed brief:\n' + typed + '\n\n' : '') + (audio ? 'Listen to the voice note, work out what is needed, then return the tasks.' : 'Work out what is needed, then return the tasks.') });
 
   var text = gemini_({
     system_instruction: { parts: [{ text: system }] },
     contents: [{ role: 'user', parts: parts }],
-    generationConfig: { temperature: 0.2, responseMimeType: 'application/json', responseSchema: schema }
+    generationConfig: { temperature: 0.2, responseMimeType: 'application/json', responseSchema: schema, thinkingConfig: { thinkingLevel: 'medium' } }
   });
   var out;
   try { out = JSON.parse(text); } catch (e) { throw new Error('Gemini did not return tasks. Try again.'); }
@@ -359,15 +373,40 @@ function voiceTasks_(audio, mimeType, typed) {
   var byName = {};
   people.forEach(function (m) { byName[m.name.toLowerCase()] = m.name; });
   var tasks = (out.tasks || []).slice(0, VOICE.maxTasks).map(function (t) {
+    var src = t.action === 'reassign' ? ops.byId[String(t.sourceId || '').trim()] : null;
     return {
+      action: src ? 'reassign' : 'create', sourceId: src ? src.id : '', from: src ? src.person : '',
       person: byName[String(t.person || '').trim().toLowerCase()] || '',
-      task: String(t.task || '').trim().slice(0, 2000), client: String(t.client || '').trim().slice(0, 200),
+      task: String((src && src.task) || t.task || '').trim().slice(0, 2000), client: String(t.client || (src && src.client) || '').trim().slice(0, 200),
       ownerRole: HUB.roles.indexOf(t.ownerRole) >= 0 ? t.ownerRole : '',
       deadline: /^\d{4}-\d{2}-\d{2}$/.test(String(t.deadline || '')) ? t.deadline : '',
       notes: String(t.notes || '').trim().slice(0, 1000)
     };
   }).filter(function (t) { return t.task; });
-  return { transcript: String(out.transcript || typed).slice(0, 20000), tasks: tasks };
+  return { understood: String(out.understood || '').slice(0, 2000), transcript: String(out.transcript || typed).slice(0, 20000), tasks: tasks };
+}
+
+/* Recent tasks and end-of-day reports, so Gemini can resolve "Thursday's tasks", "what Merab didn't finish" and so on. */
+var OPS = { taskDays: 30, eodDays: 10 };
+function opsContext_() {
+  function day(d) { var p = String(d || '').slice(0, 10).split('-'); if (p.length < 3) return String(d || ''); return Utilities.formatDate(new Date(+p[0], +p[1] - 1, +p[2]), tz_(), 'EEE yyyy-MM-dd'); }
+  var since = function (n) { return Utilities.formatDate(new Date(Date.now() - n * 864e5), tz_(), 'yyyy-MM-dd'); };
+  fillTaskIds_();
+  var byId = {}, tCut = since(OPS.taskDays), eCut = since(OPS.eodDays);
+  var tasks = readTable_('Tasks').rows.filter(function (r) { return r.task && String(r.date || r.createdAt).slice(0, 10) >= tCut; });
+  tasks.forEach(function (r) { byId[r.id] = r; });
+  var tLines = tasks.map(function (r) {
+    return [r.id, 'assigned ' + day(r.date || r.createdAt), r.person || '(nobody)', r.status || 'Open', r.client || '-', r.deadline ? 'due ' + r.deadline : '-',
+      r.task.replace(/\s+/g, ' '), r.doneNote ? 'did: ' + r.doneNote.replace(/\s+/g, ' ').slice(0, 300) : ''].join(' | ');
+  });
+  var eLines = readTable_('EOD').rows.filter(function (e) { return String(e.date).slice(0, 10) >= eCut; }).map(function (e) {
+    return [day(e.date), e.person, 'done: ' + String(e.done).replace(/\s+/g, ' ').slice(0, 500), 'blockers: ' + String(e.blockers).replace(/\s+/g, ' ').slice(0, 200), 'next: ' + String(e.next).replace(/\s+/g, ' ').slice(0, 200)].join(' | ');
+  });
+  return {
+    byId: byId,
+    text: 'TASK HISTORY (last ' + OPS.taskDays + ' days; ID | assigned on | person | status | client | due | task | what they did):\n' + (tLines.join('\n') || '(none)') +
+      '\n\nEND-OF-DAY REPORTS (last ' + OPS.eodDays + ' days):\n' + (eLines.join('\n') || '(none)')
+  };
 }
 
 /* ---------- Hive AI chat (Gemini) ----------
@@ -384,7 +423,7 @@ function gemini_(body) {
   var model = props_().getProperty('GEMINI_MODEL') || VOICE.model;
   // Low thinking keeps answers fast; set script property GEMINI_THINKING to 'high' for deeper but slower answers.
   body.generationConfig = body.generationConfig || {};
-  body.generationConfig.thinkingConfig = { thinkingLevel: props_().getProperty('GEMINI_THINKING') || 'low' };
+  if (!body.generationConfig.thinkingConfig) body.generationConfig.thinkingConfig = { thinkingLevel: props_().getProperty('GEMINI_THINKING') || 'low' };
   function call() {
     var r = callModel(model);
     // Busy (503), out of quota (429) or retired (404): try the fallback model once.
@@ -431,6 +470,43 @@ function hiveBrain_() {
   return parts.join('\n\n');
 }
 
+/* ---------- Daily chat knowledge ----------
+ * The full daily H.I.V.E. Gemini chat lives in the "Daily chat" tab (column A, in chunks). It is too long to send with
+ * every question, so rebuildChatDigest() has Gemini condense it into the "Daily chat digest" row of the Assistant tab,
+ * which hiveBrain_ includes. After pasting a newer copy of the chat into the tab, run rebuildChatDigest from the editor.
+ */
+function importDailyChat_(text) {
+  var ss = SpreadsheetApp.getActive(), sh = ss.getSheetByName('Daily chat') || ss.insertSheet('Daily chat');
+  sh.clear();
+  var chunks = [];
+  for (var i = 0; i < text.length; i += 40000) chunks.push([text.slice(i, i + 40000)]);
+  sh.getRange(1, 1, chunks.length, 1).setValues(chunks);
+  return chunks.length;
+}
+
+function rebuildChatDigest() {
+  var sh = SpreadsheetApp.getActive().getSheetByName('Daily chat');
+  if (!sh || !sh.getLastRow()) throw new Error('Put the daily chat in a tab called "Daily chat" first.');
+  var chat = sh.getRange(1, 1, sh.getLastRow(), 1).getValues().map(function (r) { return String(r[0]); }).join('');
+  var digest = gemini_({
+    system_instruction: { parts: [{ text: 'You build the knowledge base for the H.I.V.E. operations AI.' }] },
+    contents: [{ role: 'user', parts: [{ text:
+      'Below is the full history of the operations manager\'s (Fouz) daily working chat with Gemini about Powered by H.I.V.E.\n' +
+      'Write a dense knowledge digest an AI assistant can rely on. Keep every lasting fact: decisions and rules, team members and what each one owns, ' +
+      'every client (business, plan, status, problems, promises, dates), prices and offers, SOPs and step-by-step processes, recurring tasks, ' +
+      'open items and deadlines, tools, links and IDs that were shared. When information changed over time, keep the newest and mention the date. ' +
+      'Organize with headings and bullets. Skip chit-chat and drafts. Up to about 30,000 characters.\n\n=== CHAT ===\n' + chat }] }],
+    generationConfig: { temperature: 0.2, maxOutputTokens: 16000, thinkingConfig: { thinkingLevel: 'medium' } }
+  }).trim();
+  if (digest.length < 500) throw new Error('Gemini returned too little. Try again.');
+  var a = SpreadsheetApp.getActive().getSheetByName('Assistant'), names = a.getRange(1, 1, Math.max(a.getLastRow(), 1), 1).getValues();
+  var row = 0;
+  names.forEach(function (r, i) { if (String(r[0]).trim() === 'Daily chat digest') row = i + 1; });
+  if (!row) row = a.getLastRow() + 1;
+  a.getRange(row, 1, 1, 2).setValues([['Daily chat digest', digest.slice(0, 49000)]]);
+  Logger.log('Daily chat digest: ' + digest.length + ' characters from ' + chat.length + ' characters of chat.');
+}
+
 function askAssistant(token, mode, history, audio, mimeType) {
   var me = who_(token);
   need_(me, ['Admin', 'Organizer']);
@@ -452,7 +528,7 @@ function askAssistant_(me, mode, history, audio, mimeType) {
   }
   var when = 'Today is ' + Utilities.formatDate(new Date(), tz_(), 'EEEE MMM d, yyyy') + '. You are talking with ' + me.name + ' (' + me.level + ') in the Hive Operations Hub.';
   var body = { contents: contents, generationConfig: { temperature: mode === 'hive' ? 0.3 : 0.7 } };
-  if (mode === 'hive') body.system_instruction = { parts: [{ text: hiveBrain_() + '\n\n' + when }] };
+  if (mode === 'hive') body.system_instruction = { parts: [{ text: hiveBrain_() + '\n\n' + opsContext_().text + '\n\n' + when }] };
   else { body.system_instruction = { parts: [{ text: 'You are Gemini, a helpful assistant. ' + when + ' They work at Powered by H.I.V.E., a GoHighLevel CRM agency for shared-housing owners.' }] }; body.tools = [{ google_search: {} }]; }
   var reply = gemini_(body).trim();
   if (!reply) throw new Error('Gemini returned an empty answer. Try again.');
@@ -471,12 +547,21 @@ function addTasks(token, list) {
     var task = String(o.task || '').trim(), person = byName[String(o.person || '').trim().toLowerCase()];
     if (!task) throw new Error('One of the tasks is empty. Fill it in or remove it.');
     if (!person) throw new Error('Choose who this task is for: ' + task.slice(0, 60));
-    return { person: person, task: task.slice(0, 2000), client: String(o.client || '').slice(0, 200), ownerRole: String(o.ownerRole || ''),
-      deadline: String(o.deadline || ''), notes: String(o.notes || '').slice(0, 1000) };
+    return { reassign: o.action === 'reassign' && o.sourceId ? String(o.sourceId) : '', person: person, task: task.slice(0, 2000),
+      client: String(o.client || '').slice(0, 200), ownerRole: String(o.ownerRole || ''), deadline: String(o.deadline || ''), notes: String(o.notes || '').slice(0, 1000) };
   });
   return withLock_(function () {
     var t = readTable_('Tasks'), now = nowIso_();
     rows.forEach(function (r) {
+      if (r.reassign) {
+        // Move the existing task to the new person; it reopens if it was blocked or done.
+        var row = findRow_(t, r.reassign), f = { person: r.person, updatedBy: me.name, updatedAt: now };
+        if (r.deadline) f.deadline = r.deadline;
+        if (row.status !== 'In progress') f.status = 'Open';
+        if (r.notes) f.notes = (row.notes ? row.notes + ' | ' : '') + 'Reassigned from ' + (row.person || 'nobody') + ' by ' + me.name + ': ' + r.notes;
+        setFields_(t, row._row, f);
+        return;
+      }
       appendRow_(t, { id: newId_('t_'), date: today_(), person: r.person, task: r.task, client: r.client, ownerRole: r.ownerRole,
         deadline: r.deadline, status: 'Open', source: me.name + ' (voice)', notes: r.notes, createdAt: now });
     });
@@ -675,6 +760,7 @@ function testHiveAi() {
   Logger.log('HIVE MASTER OPS: ' + hive.reply.slice(0, 1500));
   var gem = askAssistant_(me, 'gemini', [{ role: 'user', text: 'In one sentence: what is A2P 10DLC registration?' }]);
   Logger.log('GEMINI: ' + gem.reply.slice(0, 600));
-  var vt = voiceTasks_('', '', 'Kamran, clear the pending A2P approvals today and fix the negative balance email by Friday. Merab and Chris, each send three referral outreach messages tomorrow. Someone needs to call Anika Williams about her GoDaddy access.');
-  vt.tasks.forEach(function (t) { Logger.log('TASK: ' + (t.person || '(nobody)') + ' | ' + t.task + ' | ' + t.client + ' | ' + t.deadline); });
+  var vt = voiceTasks_('', '', 'Chris, take over all the tasks Merab was given on Wednesday. And Kamran, make a follow-up task for every client who has not paid yet.');
+  Logger.log('UNDERSTOOD: ' + vt.understood);
+  vt.tasks.forEach(function (t) { Logger.log('TASK: ' + t.action + (t.from ? ' from ' + t.from : '') + ' -> ' + (t.person || '(nobody)') + ' | ' + t.task + ' | ' + t.client + ' | ' + t.deadline); });
 }
