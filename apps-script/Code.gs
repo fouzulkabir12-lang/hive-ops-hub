@@ -635,3 +635,9 @@ function doPost(e) {
   }
   return ContentService.createTextOutput(JSON.stringify(out)).setMimeType(ContentService.MimeType.JSON);
 }
+
+// Run once from the editor after changing the code: grants permissions and checks Gemini and the Gem brain.
+function testGemini() {
+  Logger.log('Gem brain: ' + hiveBrain_().length + ' characters');
+  Logger.log('Gemini says: ' + gemini_({ contents: [{ role: 'user', parts: [{ text: 'Reply with just: OK' }] }] }));
+}
