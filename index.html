@@ -109,6 +109,21 @@ label { display: flex; flex-direction: column; gap: 4px; font-size: 13px; color:
 @keyframes pulse { 50% { opacity: 0.3; } }
 .vtask { border-top: 1px solid var(--line); padding-top: 10px; }
 .vgroup { font-weight: 600; margin-top: 6px; }
+.chat-log { display: flex; flex-direction: column; gap: 10px; max-height: 60vh; min-height: 200px; overflow-y: auto; padding: 4px; }
+.msg { max-width: 92%; padding: 10px 12px; border-radius: 10px; border: 1px solid var(--line); line-height: 1.5; overflow-wrap: anywhere; }
+.msg.user { align-self: flex-end; background: var(--accent-soft, rgba(184,16,95,0.1)); white-space: pre-wrap; }
+.msg.model { align-self: flex-start; background: var(--surface); }
+.msg.model table { border-collapse: collapse; font-size: 13px; margin: 6px 0; display: block; overflow-x: auto; }
+.msg.model td, .msg.model th { border: 1px solid var(--line); padding: 4px 6px; text-align: left; vertical-align: top; }
+.msg.model pre { white-space: pre-wrap; background: rgba(127,127,127,0.12); padding: 8px; border-radius: 6px; }
+.msg.model h4 { margin: 8px 0 4px; }
+.msg.model ul, .msg.model ol { margin: 4px 0; padding-left: 20px; }
+.msg-tools { display: flex; gap: 6px; margin-top: 6px; }
+.msg-tools button { font: inherit; font-size: 12px; background: none; border: 1px solid var(--line); border-radius: 6px; color: var(--muted); padding: 2px 8px; cursor: pointer; }
+.chat-input { display: grid; grid-template-columns: 1fr auto auto; gap: 8px; align-items: end; }
+.chat-input textarea { min-height: 52px; }
+.btn.on { background: #c62828; color: #fff; }
+@media (max-width: 520px) { .chat-input { grid-template-columns: 1fr 1fr; } .chat-input textarea { grid-column: 1 / -1; } }
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }
 
 /* Hive brand: deep pink, gold, plum-black and cream */
@@ -171,8 +186,8 @@ body { margin: 0; }
 (function () {
   "use strict";
   var TAB_SETS = {
-    Organizer: [["today", "Today"], ["findings", "Findings"], ["assignments", "Assignments"], ["eod", "End of day"], ["notes", "Notes for the agents"], ["team", "Team"]],
-    Admin: [["assignments", "Assignments"], ["eod", "End of day"]],
+    Organizer: [["today", "Today"], ["findings", "Findings"], ["assignments", "Assignments"], ["ai", "Hive AI"], ["eod", "End of day"], ["notes", "Notes for the agents"], ["team", "Team"]],
+    Admin: [["assignments", "Assignments"], ["ai", "Hive AI"], ["eod", "End of day"]],
     Expert: [["mine", "My tasks"], ["eod", "End of day"]]
   };
   var state = { token: "", data: null, names: [], tab: "", viewAs: "", fFilter: "Open", aFilter: "Active", loginErr: "", busy: false, showPw: false, lastLoad: 0 };
@@ -602,7 +617,124 @@ body { margin: 0; }
     ]);
   }
 
-  var VIEWS = { today: viewToday, findings: viewFindings, assignments: viewAssignments, eod: viewEod, notes: viewNotes, team: viewTeam, mine: viewMine };
+  /* ----- Hive AI: chat with the HIVE Master Ops Gem or plain Gemini, by typing or speaking ----- */
+  var MODES = [["hive", "HIVE Master Ops"], ["gemini", "Gemini"]];
+  var dictation = null;
+  function cs() { return state.chat || (state.chat = { mode: "hive", msgs: { hive: [], gemini: [] }, draft: "", listening: false, speak: false, waiting: false }); }
+  function esc(t) { return String(t).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;"); }
+  function inline(t) {
+    return esc(t).replace(/`([^`]+)`/g, "<code>$1</code>").replace(/\*\*([^*]+)\*\*/g, "<b>$1</b>")
+      .replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>')
+      .replace(/(^|[\s(])(https?:\/\/[^\s<)]+)/g, '$1<a href="$2" target="_blank" rel="noopener">$2</a>');
+  }
+  function md(text) {
+    var lines = String(text).replace(/\r/g, "").split("\n"), html = [], i = 0;
+    while (i < lines.length) {
+      var l = lines[i];
+      if (/^```/.test(l)) { var code = []; i++; while (i < lines.length && !/^```/.test(lines[i])) code.push(lines[i++]); i++; html.push("<pre>" + esc(code.join("\n")) + "</pre>"); continue; }
+      if (/^\s*\|/.test(l)) {
+        var rows = []; while (i < lines.length && /^\s*\|/.test(lines[i])) rows.push(lines[i++]);
+        var body = rows.filter(function (r) { return !/^\s*\|?[\s:|-]+\|?\s*$/.test(r); }).map(function (r, n) {
+          var cells = r.trim().replace(/^\||\|$/g, "").split("|");
+          return "<tr>" + cells.map(function (c) { return (n ? "<td>" : "<th>") + inline(c.trim()) + (n ? "</td>" : "</th>"); }).join("") + "</tr>";
+        });
+        html.push("<table>" + body.join("") + "</table>"); continue;
+      }
+      if (/^\s*([-*•]|\d+[.)])\s+/.test(l)) {
+        var ordered = /^\s*\d/.test(l), items = [];
+        while (i < lines.length && /^\s*([-*•]|\d+[.)])\s+/.test(lines[i])) items.push("<li>" + inline(lines[i++].replace(/^\s*([-*•]|\d+[.)])\s+/, "")) + "</li>");
+        html.push((ordered ? "<ol>" : "<ul>") + items.join("") + (ordered ? "</ol>" : "</ul>")); continue;
+      }
+      if (/^#{1,6}\s/.test(l)) { html.push("<h4>" + inline(l.replace(/^#+\s/, "")) + "</h4>"); i++; continue; }
+      html.push(l.trim() ? "<div>" + inline(l) + "</div>" : "<div>&nbsp;</div>"); i++;
+    }
+    var box = el("div"); box.innerHTML = html.join(""); return box;
+  }
+  function speakText(t) {
+    if (!window.speechSynthesis) return;
+    speechSynthesis.cancel();
+    var plain = String(t).replace(/[|*#`_>]/g, " ").replace(/https?:\/\/\S+/g, "link").replace(/\s+/g, " ").slice(0, 4000);
+    speechSynthesis.speak(new SpeechSynthesisUtterance(plain));
+  }
+  function sendChat(audio, mime) {
+    var c = cs(), list = c.msgs[c.mode], text = c.draft.trim();
+    if (c.waiting || (!text && !audio)) return;
+    if (dictation) dictation.stop();
+    list.push({ role: "user", text: audio ? "🎙 Voice message" + (text ? "\n" + text : "") : text });
+    c.draft = ""; c.waiting = true; foot(""); render();
+    var mode = c.mode;
+    api("askAssistant", state.token, mode, list.map(function (m) { return { role: m.role, text: m.text }; }), audio || "", mime || "").then(function (r) {
+      c.msgs[mode].push({ role: "model", text: r.reply });
+      if (c.speak) speakText(r.reply);
+    }).catch(function (e) { list.pop(); c.draft = text; foot(e.message); })
+      .then(function () { c.waiting = false; render(); });
+  }
+  function toggleDictation() {
+    var c = cs(), SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (dictation) { dictation.stop(); return; }
+    if (!SR) { toggleVoiceMessage(); return; }
+    var base = c.draft ? c.draft.replace(/\s*$/, " ") : "";
+    var r = new SR(); r.continuous = true; r.interimResults = true; r.lang = navigator.language || "en-US";
+    r.onresult = function (e) {
+      var fin = "", tmp = "";
+      for (var k = 0; k < e.results.length; k++) { if (e.results[k].isFinal) fin += e.results[k][0].transcript; else tmp += e.results[k][0].transcript; }
+      c.draft = base + fin + tmp; var box = $("ai_input"); if (box) box.value = c.draft;
+    };
+    r.onerror = function (e) { if (e.error === "not-allowed") foot("The microphone is blocked. Allow it for this site."); };
+    r.onend = function () { dictation = null; c.listening = false; render(); };
+    try { r.start(); dictation = r; c.listening = true; foot("Listening… speak, then press Stop and Send.", true); render(); } catch (e) { foot("Could not start the microphone."); }
+  }
+  function toggleVoiceMessage() {
+    // Fallback where the browser has no speech-to-text: record audio and let Gemini listen to it.
+    var c = cs();
+    if (rec.recorder && rec.recorder.state === "recording") { rec.recorder.stop(); return; }
+    if (!navigator.mediaDevices || !window.MediaRecorder) { foot("This browser can't use the microphone. Type instead."); return; }
+    navigator.mediaDevices.getUserMedia({ audio: true }).then(function (stream) {
+      var mr = new MediaRecorder(stream); rec.recorder = mr; rec.chunks = [];
+      mr.ondataavailable = function (e) { if (e.data && e.data.size) rec.chunks.push(e.data); };
+      mr.onstop = function () {
+        stream.getTracks().forEach(function (t) { t.stop(); }); c.listening = false;
+        var blob = new Blob(rec.chunks, { type: mr.mimeType || "audio/webm" }), fr = new FileReader();
+        fr.onload = function () { var u = String(fr.result); sendChat(u.slice(u.indexOf(",") + 1), blob.type); };
+        fr.readAsDataURL(blob);
+      };
+      mr.start(); c.listening = true; foot("Recording… press Stop to send.", true); render();
+    }).catch(function () { foot("The microphone is blocked. Allow it for this site."); });
+  }
+  function viewAi() {
+    var c = cs(), list = c.msgs[c.mode], off = !canWrite();
+    var modeSel = el("div", { class: "voice-bar" }, MODES.map(function (m) {
+      return el("button", { class: "btn" + (c.mode === m[0] ? "" : " alt"), text: m[1], "aria-pressed": String(c.mode === m[0]), onclick: function () { c.mode = m[0]; render(); } });
+    }).concat([
+      el("label", { class: "note" }, [el("input", { type: "checkbox", checked: c.speak, onchange: function (e) { c.speak = e.target.checked; if (!c.speak && window.speechSynthesis) speechSynthesis.cancel(); } }), " Read replies aloud"]),
+      list.length ? el("button", { class: "btn alt", text: "New chat", disabled: c.waiting, onclick: function () { c.msgs[c.mode] = []; render(); } }) : null
+    ]));
+    var intro = c.mode === "hive"
+      ? "Your HIVE Master Ops Gem: it knows the team, plans, SOPs and reads the Client Master Sheet live. Ask about clients, who is stuck, task lists, client messages, GHL fixes."
+      : "Plain Gemini with Google Search, like your everyday Gemini chat.";
+    var log = el("div", { class: "chat-log", id: "ai_log" });
+    if (!list.length) log.appendChild(el("div", { class: "empty", text: intro }));
+    list.forEach(function (m) {
+      if (m.role === "user") { log.appendChild(el("div", { class: "msg user", text: m.text })); return; }
+      var b = el("div", { class: "msg model" }, [md(m.text)]);
+      b.appendChild(el("div", { class: "msg-tools" }, [
+        el("button", { text: "Copy", onclick: function (e) { try { navigator.clipboard.writeText(m.text); e.target.textContent = "Copied"; } catch (x) {} } }),
+        window.speechSynthesis ? el("button", { text: "🔊 Listen", onclick: function () { speakText(m.text); } }) : null
+      ]));
+      log.appendChild(b);
+    });
+    if (c.waiting) log.appendChild(el("div", { class: "msg model note", text: "Thinking…" }));
+    var input = el("textarea", { id: "ai_input", placeholder: c.listening ? "Listening…" : "Ask anything, or press 🎙 and speak", disabled: off,
+      oninput: function (e) { c.draft = e.target.value; },
+      onkeydown: function (e) { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); c.draft = e.target.value; sendChat(); } } });
+    input.value = c.draft;
+    var mic = el("button", { class: "btn" + (c.listening ? " on" : " alt"), text: c.listening ? "■ Stop" : "🎙 Speak", disabled: off || c.waiting, onclick: toggleDictation });
+    var send = el("button", { class: "btn", text: c.waiting ? "…" : "Send", disabled: off || c.waiting, onclick: function () { c.draft = input.value; sendChat(); } });
+    setTimeout(function () { var lg = $("ai_log"); if (lg) lg.scrollTop = lg.scrollHeight; }, 0);
+    return el("div", { class: "panel" }, [el("div", { class: "block" }, [el("h2", { text: "Hive AI" }), modeSel, log, el("div", { class: "chat-input" }, [input, mic, send])])]);
+  }
+
+  var VIEWS = { ai: viewAi, today: viewToday, findings: viewFindings, assignments: viewAssignments, eod: viewEod, notes: viewNotes, team: viewTeam, mine: viewMine };
 
   function render() {
     var active = document.activeElement;

@@ -302,7 +302,7 @@ function reassignTask(token, id, person) {
  * Script properties (Project Settings, Script properties):
  *   GEMINI_API_KEY           required, from aistudio.google.com
  *   GEMINI_MODEL             optional, defaults to VOICE.model
- *   HIVE_AGENT_INSTRUCTIONS  optional, the instructions of your Hive Gem, added to the prompt
+ *   The HIVE Master Ops Gem brain (Assistant tab + Client Master Sheet) is added to the prompt; see hiveBrain_.
  */
 var VOICE = { model: 'gemini-2.5-flash', maxAudioBytes: 15 * 1024 * 1024, maxTasks: 40 };
 
@@ -311,18 +311,15 @@ function assignable_() { return members_().filter(function (m) { return normLeve
 function voiceTasks(token, audio, mimeType, typed) {
   var me = who_(token);
   need_(me, ['Admin', 'Organizer']);
-  var key = props_().getProperty('GEMINI_API_KEY');
-  if (!key) throw new Error('Voice tasks are not set up yet: add GEMINI_API_KEY to the Apps Script project settings.');
   audio = String(audio || '');
   typed = String(typed || '').trim().slice(0, 20000);
   if (!audio && !typed) throw new Error('Record a voice note or type what needs doing.');
   if (audio.length * 3 / 4 > VOICE.maxAudioBytes) throw new Error('That voice note is too long. Keep it under about 15 minutes.');
 
   var people = assignable_();
-  var custom = String(props_().getProperty('HIVE_AGENT_INSTRUCTIONS') || '').trim();
   var system = [
-    'You turn an operations manager\'s spoken brief into clear, assignable tasks for the team of Powered by H.I.V.E.',
-    custom ? 'Instructions from the Hive agent:\n' + custom : '',
+    'Background knowledge about H.I.V.E. (from the HIVE Master Ops Gem):\n' + hiveBrain_(),
+    'YOUR JOB NOW: turn the operations manager\'s spoken brief into clear, assignable tasks for the team. Ignore the output formats above; reply only in the JSON shape asked for.',
     'Team members you may assign (use these exact names; names in the recording may be misheard, so match each to the closest name here): ' +
       people.map(function (m) { return m.name + (m.role ? ' (' + m.role + ')' : ''); }).join(', ') + '.',
     'Roles: ' + HUB.roles.join(', ') + '. Set ownerRole to one of these only when it is clear, otherwise leave it empty.',
@@ -346,19 +343,11 @@ function voiceTasks(token, audio, mimeType, typed) {
   if (audio) parts.push({ inline_data: { mime_type: String(mimeType || 'audio/webm').split(';')[0], data: audio } });
   parts.push({ text: (typed ? 'Typed brief:\n' + typed + '\n\n' : '') + (audio ? 'Listen to the voice note, then make the tasks.' : 'Make the tasks.') });
 
-  var model = props_().getProperty('GEMINI_MODEL') || VOICE.model;
-  var res = UrlFetchApp.fetch('https://generativelanguage.googleapis.com/v1beta/models/' + encodeURIComponent(model) + ':generateContent', {
-    method: 'post', contentType: 'application/json', muteHttpExceptions: true, headers: { 'x-goog-api-key': key },
-    payload: JSON.stringify({
-      system_instruction: { parts: [{ text: system }] },
-      contents: [{ role: 'user', parts: parts }],
-      generationConfig: { temperature: 0.2, responseMimeType: 'application/json', responseSchema: schema }
-    })
+  var text = gemini_({
+    system_instruction: { parts: [{ text: system }] },
+    contents: [{ role: 'user', parts: parts }],
+    generationConfig: { temperature: 0.2, responseMimeType: 'application/json', responseSchema: schema }
   });
-  var body = {};
-  try { body = JSON.parse(res.getContentText()); } catch (e) {}
-  if (res.getResponseCode() !== 200) throw new Error('Gemini could not process that: ' + ((body.error && body.error.message) || 'error ' + res.getResponseCode()));
-  var text = ((((body.candidates || [])[0] || {}).content || {}).parts || []).map(function (p) { return p.text || ''; }).join('');
   var out;
   try { out = JSON.parse(text); } catch (e) { throw new Error('Gemini did not return tasks. Try again.'); }
 
@@ -374,6 +363,74 @@ function voiceTasks(token, audio, mimeType, typed) {
     };
   }).filter(function (t) { return t.task; });
   return { transcript: String(out.transcript || typed).slice(0, 20000), tasks: tasks };
+}
+
+/* ---------- Hive AI chat (Gemini) ----------
+ * Two modes: 'hive' answers like the HIVE Master Ops Gem (instructions in the Assistant tab plus a live read
+ * of the Client Master Sheet, its knowledge file); 'gemini' is plain Gemini with Google Search.
+ * Assistant tab rows: Name | Text. "Instructions" = the Gem's instructions; any other row is added as background.
+ * Script property CLIENT_MASTER_SHEET_ID overrides ASSIST.masterSheetId.
+ */
+var ASSIST = { masterSheetId: '1r3RR53Q5NCdtoaHqURSrcz6kyfyBx53eMLQKlScC9Ao', maxTurns: 24, maxSheetChars: 60000 };
+
+function gemini_(body) {
+  var key = props_().getProperty('GEMINI_API_KEY');
+  if (!key) throw new Error('Gemini is not set up yet: add GEMINI_API_KEY to the Apps Script project settings.');
+  var model = props_().getProperty('GEMINI_MODEL') || VOICE.model;
+  var res = UrlFetchApp.fetch('https://generativelanguage.googleapis.com/v1beta/models/' + encodeURIComponent(model) + ':generateContent', {
+    method: 'post', contentType: 'application/json', muteHttpExceptions: true, headers: { 'x-goog-api-key': key }, payload: JSON.stringify(body)
+  });
+  var out = {};
+  try { out = JSON.parse(res.getContentText()); } catch (e) {}
+  if (res.getResponseCode() !== 200) throw new Error('Gemini could not process that: ' + ((out.error && out.error.message) || 'error ' + res.getResponseCode()));
+  return ((((out.candidates || [])[0] || {}).content || {}).parts || []).map(function (p) { return p.text || ''; }).join('');
+}
+
+function hiveBrain_() {
+  var parts = [], sh = SpreadsheetApp.getActive().getSheetByName('Assistant');
+  if (sh) {
+    var rows = sh.getDataRange().getValues().slice(1).filter(function (r) { return String(r[1] || '').trim(); });
+    rows.sort(function (a, b) { return (String(a[0]).trim() === 'Instructions' ? 0 : 1) - (String(b[0]).trim() === 'Instructions' ? 0 : 1); });
+    rows.forEach(function (r) { parts.push((String(r[0]).trim() === 'Instructions' ? '' : String(r[0]).trim().toUpperCase() + ':\n') + String(r[1]).trim()); });
+  }
+  if (!parts.length) parts.push('You are the H.I.V.E. Master Operations AI for Powered by H.I.V.E., a GoHighLevel CRM agency for U.S. shared-housing owners.');
+  try {
+    var ss = SpreadsheetApp.openById(props_().getProperty('CLIENT_MASTER_SHEET_ID') || ASSIST.masterSheetId);
+    var live = ss.getSheets().map(function (s) {
+      var csv = s.getDataRange().getDisplayValues().filter(function (r) { return r.join('').trim(); })
+        .map(function (r) { return r.map(function (c) { return String(c).replace(/\s+/g, ' ').trim(); }).join(' | '); }).join('\n');
+      return 'TAB "' + s.getName() + '":\n' + csv;
+    }).join('\n\n').slice(0, ASSIST.maxSheetChars);
+    parts.push('LIVE CLIENT MASTER SHEET, read just now (' + Utilities.formatDate(new Date(), tz_(), 'MMM d, yyyy h:mm a') +
+      '). This is newer than any snapshot above and wins over it:\n' + live);
+  } catch (e) {
+    parts.push('(The live Client Master Sheet could not be read just now: ' + e.message + '. Use the snapshot above and say it may be stale.)');
+  }
+  return parts.join('\n\n');
+}
+
+function askAssistant(token, mode, history, audio, mimeType) {
+  var me = who_(token);
+  need_(me, ['Admin', 'Organizer']);
+  history = (Array.isArray(history) ? history : []).slice(-ASSIST.maxTurns);
+  audio = String(audio || '');
+  if (audio.length * 3 / 4 > VOICE.maxAudioBytes) throw new Error('That voice message is too long.');
+  var contents = history.map(function (m) {
+    return { role: m && m.role === 'model' ? 'model' : 'user', parts: [{ text: String((m && m.text) || '').slice(0, 12000) || '(voice message)' }] };
+  });
+  if (!contents.length || contents[contents.length - 1].role !== 'user') throw new Error('Ask something first.');
+  if (audio) {
+    var last = contents[contents.length - 1];
+    last.parts = [{ inline_data: { mime_type: String(mimeType || 'audio/webm').split(';')[0], data: audio } },
+      { text: 'This is a voice message. Answer it directly.' }];
+  }
+  var when = 'Today is ' + Utilities.formatDate(new Date(), tz_(), 'EEEE MMM d, yyyy') + '. You are talking with ' + me.name + ' (' + me.level + ') in the Hive Operations Hub.';
+  var body = { contents: contents, generationConfig: { temperature: mode === 'hive' ? 0.3 : 0.7 } };
+  if (mode === 'hive') body.system_instruction = { parts: [{ text: hiveBrain_() + '\n\n' + when }] };
+  else { body.system_instruction = { parts: [{ text: 'You are Gemini, a helpful assistant. ' + when + ' They work at Powered by H.I.V.E., a GoHighLevel CRM agency for shared-housing owners.' }] }; body.tools = [{ google_search: {} }]; }
+  var reply = gemini_(body).trim();
+  if (!reply) throw new Error('Gemini returned an empty answer. Try again.');
+  return { reply: reply };
 }
 
 function addTasks(token, list) {
@@ -559,7 +616,7 @@ function seedHub_(seed) {
 function apiFns_() {
   return {
     getNames: getNames, login: login, logout: logout, getData: getData,
-    updateTask: updateTask, addTask: addTask, addTasks: addTasks, voiceTasks: voiceTasks, reassignTask: reassignTask, addEod: addEod,
+    updateTask: updateTask, addTask: addTask, addTasks: addTasks, voiceTasks: voiceTasks, askAssistant: askAssistant, reassignTask: reassignTask, addEod: addEod,
     setFindingStatus: setFindingStatus, addNote: addNote, deleteNote: deleteNote,
     addPerson: addPerson, setLevel: setLevel, setPassword: setPassword, changeMyPassword: changeMyPassword
   };

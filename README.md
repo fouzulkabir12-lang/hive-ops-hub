@@ -22,11 +22,17 @@ Passwords are never stored in this repository. They are stored scrambled in the 
 
 On the Assignments tab, Admin and Organizer can record a voice brief (or upload a voice note, or type one). Gemini splits it into one task per person, cleans up each task, fills in client, role and due date where they were said, and groups them by person. Nothing is saved until you check the list and press **Assign all**. Voice tasks show "(voice)" in the Source column.
 
-Setup, in the Apps Script editor under Project Settings, Script properties:
+## Hive AI (chat, Admin and Organizer)
+
+A chat tab with two modes. **HIVE Master Ops** answers like the HIVE Master Ops Gem: its instructions are in the **Assistant** tab of the database sheet (row "Instructions"; any other row there is added as background), and it reads the Client Master Sheet live on every question. **Gemini** is plain Gemini with Google Search. Press 🎙 Speak to dictate (Chrome speech-to-text), or tick "Read replies aloud". When you change the Gem in Gemini, paste its new instructions into the Assistant tab.
+
+## Gemini setup
+
+In the Apps Script editor under Project Settings, Script properties:
 
 - `GEMINI_API_KEY` (required): a key from aistudio.google.com.
-- `HIVE_AGENT_INSTRUCTIONS` (optional): paste your Hive Gem's instructions here; they are added to every request.
 - `GEMINI_MODEL` (optional): defaults to `gemini-2.5-flash`.
+- `CLIENT_MASTER_SHEET_ID` (optional): only if the Client Master Sheet moves.
 
 The key stays on Google's server. The page never sees it.
 
