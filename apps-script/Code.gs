@@ -381,12 +381,23 @@ function gemini_(body) {
   var key = props_().getProperty('GEMINI_API_KEY');
   if (!key) throw new Error('Gemini is not set up yet: add GEMINI_API_KEY to the Apps Script project settings.');
   var model = props_().getProperty('GEMINI_MODEL') || VOICE.model;
-  var res = UrlFetchApp.fetch('https://generativelanguage.googleapis.com/v1beta/models/' + encodeURIComponent(model) + ':generateContent', {
-    method: 'post', contentType: 'application/json', muteHttpExceptions: true, headers: { 'x-goog-api-key': key }, payload: JSON.stringify(body)
-  });
-  var out = {};
-  try { out = JSON.parse(res.getContentText()); } catch (e) {}
-  if (res.getResponseCode() !== 200) throw new Error('Gemini could not process that: ' + ((out.error && out.error.message) || 'error ' + res.getResponseCode()));
+  // Low thinking keeps answers fast; set script property GEMINI_THINKING to 'high' for deeper but slower answers.
+  body.generationConfig = body.generationConfig || {};
+  body.generationConfig.thinkingConfig = { thinkingLevel: props_().getProperty('GEMINI_THINKING') || 'low' };
+  function call() {
+    var res = UrlFetchApp.fetch('https://generativelanguage.googleapis.com/v1beta/models/' + encodeURIComponent(model) + ':generateContent', {
+      method: 'post', contentType: 'application/json', muteHttpExceptions: true, headers: { 'x-goog-api-key': key }, payload: JSON.stringify(body)
+    });
+    var o = {};
+    try { o = JSON.parse(res.getContentText()); } catch (e) {}
+    return { code: res.getResponseCode(), out: o };
+  }
+  var r = call();
+  // Web search has its own, smaller free quota: answer without it rather than fail.
+  if (r.code === 429 && body.tools) { delete body.tools; r = call(); }
+  var out = r.out;
+  if (r.code === 429) throw new Error('Gemini\'s free usage limit is used up for the moment. Wait a minute and try again, or turn on billing for the key in Google AI Studio.');
+  if (r.code !== 200) throw new Error('Gemini could not process that: ' + ((out.error && out.error.message) || 'error ' + r.code));
   return ((((out.candidates || [])[0] || {}).content || {}).parts || []).map(function (p) { return p.text || ''; }).join('');
 }
 
