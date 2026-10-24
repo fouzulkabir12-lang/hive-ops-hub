@@ -311,6 +311,10 @@ function assignable_() { return members_().filter(function (m) { return normLeve
 function voiceTasks(token, audio, mimeType, typed) {
   var me = who_(token);
   need_(me, ['Admin', 'Organizer']);
+  return voiceTasks_(audio, mimeType, typed);
+}
+
+function voiceTasks_(audio, mimeType, typed) {
   audio = String(audio || '');
   typed = String(typed || '').trim().slice(0, 20000);
   if (!audio && !typed) throw new Error('Record a voice note or type what needs doing.');
@@ -412,6 +416,10 @@ function hiveBrain_() {
 function askAssistant(token, mode, history, audio, mimeType) {
   var me = who_(token);
   need_(me, ['Admin', 'Organizer']);
+  return askAssistant_(me, mode, history, audio, mimeType);
+}
+
+function askAssistant_(me, mode, history, audio, mimeType) {
   history = (Array.isArray(history) ? history : []).slice(-ASSIST.maxTurns);
   audio = String(audio || '');
   if (audio.length * 3 / 4 > VOICE.maxAudioBytes) throw new Error('That voice message is too long.');
@@ -640,4 +648,15 @@ function doPost(e) {
 function testGemini() {
   Logger.log('Gem brain: ' + hiveBrain_().length + ' characters');
   Logger.log('Gemini says: ' + gemini_({ contents: [{ role: 'user', parts: [{ text: 'Reply with just: OK' }] }] }));
+}
+
+// Editor-only check of Hive AI and voice tasks without signing in (not reachable from the page).
+function testHiveAi() {
+  var me = { name: 'Fouz', level: 'Organizer' };
+  var hive = askAssistant_(me, 'hive', [{ role: 'user', text: 'Who is stuck right now and who has not paid? Short table, then flags.' }]);
+  Logger.log('HIVE MASTER OPS: ' + hive.reply.slice(0, 1500));
+  var gem = askAssistant_(me, 'gemini', [{ role: 'user', text: 'In one sentence: what is A2P 10DLC registration?' }]);
+  Logger.log('GEMINI: ' + gem.reply.slice(0, 600));
+  var vt = voiceTasks_('', '', 'Kamran, clear the pending A2P approvals today and fix the negative balance email by Friday. Merab and Chris, each send three referral outreach messages tomorrow. Someone needs to call Anika Williams about her GoDaddy access.');
+  vt.tasks.forEach(function (t) { Logger.log('TASK: ' + (t.person || '(nobody)') + ' | ' + t.task + ' | ' + t.client + ' | ' + t.deadline); });
 }
