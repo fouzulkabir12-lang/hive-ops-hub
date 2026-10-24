@@ -31,7 +31,7 @@ A chat tab with two modes. **HIVE Master Ops** answers like the HIVE Master Ops 
 In the Apps Script editor under Project Settings, Script properties:
 
 - `GEMINI_API_KEY` (required): a key from aistudio.google.com.
-- `GEMINI_MODEL` (optional): defaults to `gemini-2.5-flash`.
+- `GEMINI_MODEL` (optional): defaults to `gemini-3.8-flash`.
 - `CLIENT_MASTER_SHEET_ID` (optional): only if the Client Master Sheet moves.
 
 The key stays on Google's server. The page never sees it.

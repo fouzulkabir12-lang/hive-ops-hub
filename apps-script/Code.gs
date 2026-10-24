@@ -304,7 +304,7 @@ function reassignTask(token, id, person) {
  *   GEMINI_MODEL             optional, defaults to VOICE.model
  *   The HIVE Master Ops Gem brain (Assistant tab + Client Master Sheet) is added to the prompt; see hiveBrain_.
  */
-var VOICE = { model: 'gemini-2.5-flash', maxAudioBytes: 15 * 1024 * 1024, maxTasks: 40 };
+var VOICE = { model: 'gemini-3.8-flash', maxAudioBytes: 15 * 1024 * 1024, maxTasks: 40 };
 
 function assignable_() { return members_().filter(function (m) { return normLevel_(m.level) !== 'Admin'; }); }
 
