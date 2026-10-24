@@ -304,7 +304,8 @@ function reassignTask(token, id, person) {
  *   GEMINI_MODEL             optional, defaults to VOICE.model
  *   The HIVE Master Ops Gem brain (Assistant tab + Client Master Sheet) is added to the prompt; see hiveBrain_.
  */
-var VOICE = { model: 'gemini-3.8-flash', maxAudioBytes: 15 * 1024 * 1024, maxTasks: 40 };
+// gemini-3.5-flash-lite answers the Gem questions in about 4 seconds; gemini-3.8-flash took over a minute.
+var VOICE = { model: 'gemini-3.5-flash-lite', fallbackModel: 'gemini-flash-lite-latest', maxAudioBytes: 15 * 1024 * 1024, maxTasks: 40 };
 
 function assignable_() { return members_().filter(function (m) { return normLevel_(m.level) !== 'Admin'; }); }
 
@@ -385,7 +386,13 @@ function gemini_(body) {
   body.generationConfig = body.generationConfig || {};
   body.generationConfig.thinkingConfig = { thinkingLevel: props_().getProperty('GEMINI_THINKING') || 'low' };
   function call() {
-    var res = UrlFetchApp.fetch('https://generativelanguage.googleapis.com/v1beta/models/' + encodeURIComponent(model) + ':generateContent', {
+    var r = callModel(model);
+    // Busy (503), out of quota (429) or retired (404): try the fallback model once.
+    if ([404, 429, 503].indexOf(r.code) >= 0 && model !== VOICE.fallbackModel) r = callModel(VOICE.fallbackModel);
+    return r;
+  }
+  function callModel(name) {
+    var res = UrlFetchApp.fetch('https://generativelanguage.googleapis.com/v1beta/models/' + encodeURIComponent(name) + ':generateContent', {
       method: 'post', contentType: 'application/json', muteHttpExceptions: true, headers: { 'x-goog-api-key': key }, payload: JSON.stringify(body)
     });
     var o = {};
