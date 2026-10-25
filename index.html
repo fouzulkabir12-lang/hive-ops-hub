@@ -6,6 +6,9 @@
 <title>Hive Operations Hub</title>
 <meta name="description" content="Powered by H.I.V.E. team portal: tasks and end-of-day reports.">
 <meta name="robots" content="noindex, nofollow">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data:; media-src 'self' blob: data:; connect-src https://script.google.com https://script.googleusercontent.com; base-uri 'none'; form-action 'none'">
+<meta name="referrer" content="no-referrer">
+<script>if (window.top !== window.self) { document.documentElement.style.display = "none"; window.top.location = window.self.location.href; }</script>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 48 52%27%3E%3Cpolygon points=%2724,2 45,14 45,38 24,50 3,38 3,14%27 fill=%27%23e0a31a%27/%3E%3Cpolygon points=%2724,10 38,18 38,34 24,42 10,34 10,18%27 fill=%27%23b8105f%27/%3E%3C/svg%3E">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=DM+Mono:wght@400;500&display=swap">
@@ -188,7 +191,7 @@ body { margin: 0; }
   var TAB_SETS = {
     Organizer: [["today", "Today"], ["findings", "Findings"], ["assignments", "Assignments"], ["ai", "Hive AI"], ["eod", "End of day"], ["notes", "Notes for the agents"], ["team", "Team"]],
     Admin: [["assignments", "Assignments"], ["ai", "Hive AI"], ["eod", "End of day"]],
-    Expert: [["mine", "My tasks"], ["eod", "End of day"]]
+    Expert: [["mine", "My tasks"], ["ai", "Hive AI"], ["eod", "End of day"]]
   };
   var state = { token: "", data: null, names: [], tab: "", viewAs: "", fFilter: "Open", aFilter: "Active", loginErr: "", busy: false, showPw: false, lastLoad: 0 };
 
@@ -385,7 +388,7 @@ body { margin: 0; }
 
   function pwBox() {
     var cur = el("input", { type: "password", autocomplete: "current-password", placeholder: "Current password", "aria-label": "Current password" });
-    var nw = el("input", { type: "password", autocomplete: "new-password", placeholder: "New password (6+ characters)", "aria-label": "New password" });
+    var nw = el("input", { type: "password", autocomplete: "new-password", placeholder: "New password (8+ with a number and a symbol)", "aria-label": "New password" });
     return el("div", { class: "block" }, [el("h2", { text: "Change your password" }), el("div", { class: "form" }, [el("label", {}, ["Current", cur]), el("label", {}, ["New", nw]), el("div", { class: "full" }, [
       el("button", { class: "btn", text: "Update password", disabled: state.busy, onclick: function () { act(api("changeMyPassword", state.token, cur.value, nw.value), "Password updated.").then(function () { state.showPw = false; render(); }); } })
     ])])]);
@@ -721,7 +724,7 @@ body { margin: 0; }
       var b = el("div", { class: "msg model" }, [md(m.text)]);
       b.appendChild(el("div", { class: "msg-tools" }, [
         el("button", { text: "Copy", onclick: function (e) { try { navigator.clipboard.writeText(m.text); e.target.textContent = "Copied"; } catch (x) {} } }),
-        canWrite() ? el("button", { text: "➕ Make tasks from this", onclick: function () {
+        canWrite() && lvl() !== "Expert" ? el("button", { text: "➕ Make tasks from this", onclick: function () {
           var v = vs(); v.typed = "Turn this Hive AI answer into tasks for the team:\n" + m.text; v.audio = ""; v.tasks = [];
           state.tab = "assignments"; render(); makeTasks();
         } }) : null,

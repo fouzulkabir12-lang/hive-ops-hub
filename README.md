@@ -16,15 +16,17 @@ Team portal for Powered by H.I.V.E.: daily tasks, end-of-day reports, and the Co
 - **Admin** (Tiffany): all tasks and all end-of-day reports; can assign tasks.
 - **Organizer** (Fouz): everything, plus findings, notes for the agents, the Team tab (passwords and levels) and "View as".
 
+Passwords need 8+ characters with a letter, a number and a symbol. To give everyone new passwords, run `resetAllPasswords` in the Apps Script editor: it signs everyone out and writes the new list to a "New passwords" tab in the sheet; share them, then delete that tab. Sign-in locks a name for 10 minutes after 5 wrong tries, and pauses all sign-ins after 25 wrong tries in 10 minutes. Sessions last 7 days.
+
 Passwords are never stored in this repository. They are stored scrambled in the Team tab of the Google Sheet and checked by the Google script.
 
 ## Assign by voice (Gemini)
 
 On the Assignments tab, Admin and Organizer can record a voice brief (or upload a voice note, or type one). Gemini splits it into one task per person, cleans up each task, fills in client, role and due date where they were said, and groups them by person. Nothing is saved until you check the list and press **Assign all**. Voice tasks show "(voice)" in the Source column.
 
-## Hive AI (chat, Admin and Organizer)
+## Hive AI (chat, everyone)
 
-A chat tab with two modes. **HIVE Master Ops** answers like the HIVE Master Ops Gem: its instructions are in the **Assistant** tab of the database sheet (row "Instructions"; any other row there is added as background), and it reads the Client Master Sheet live on every question. **Gemini** is plain Gemini with Google Search. Press 🎙 Speak to dictate (Chrome speech-to-text), or tick "Read replies aloud". When you change the Gem in Gemini, paste its new instructions into the Assistant tab.
+Everyone has it. Experts get the same knowledge but only their own tasks and reports, and no "Make tasks" button. A chat tab with two modes. **HIVE Master Ops** answers like the HIVE Master Ops Gem: its instructions are in the **Assistant** tab of the database sheet (row "Instructions"; any other row there is added as background), and it reads the Client Master Sheet live on every question. **Gemini** is plain Gemini with Google Search. Press 🎙 Speak to dictate (Chrome speech-to-text), or tick "Read replies aloud". When you change the Gem in Gemini, paste its new instructions into the Assistant tab.
 
 ## Gemini setup
 

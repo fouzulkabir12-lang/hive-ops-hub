@@ -7,7 +7,7 @@
 
 var HUB = {
   name: 'Hive Operations Hub',
-  sessionDays: 14,
+  sessionDays: 7,
   hashRounds: 1000,
   levels: ['Expert', 'Admin', 'Organizer'],
   statuses: ['Open', 'In progress', 'Done', 'Blocked'],
@@ -182,11 +182,14 @@ function login(name, password) {
   name = String(name || '').trim();
   password = String(password || '');
   var cache = CacheService.getScriptCache(), key = 'fail_' + name.toLowerCase();
-  var fails = Number(cache.get(key) || 0);
+  var fails = Number(cache.get(key) || 0), allFails = Number(cache.get('fail_all') || 0);
   if (fails >= 5) throw new Error('Too many attempts. Wait 10 minutes and try again.');
+  // Site-wide brake: many wrong passwords across all names in 10 minutes pauses every sign-in.
+  if (allFails >= 25) throw new Error('Sign-in is paused for a few minutes. Try again later.');
   var m = findMember_(name);
   if (!m || isInactive_(m) || !m.salt || !m.hash || hash_(m.salt, password) !== m.hash) {
     cache.put(key, String(fails + 1), 600);
+    cache.put('fail_all', String(allFails + 1), 600);
     throw new Error('That name and password do not match.');
   }
   cache.remove(key);
@@ -334,7 +337,7 @@ function voiceTasks_(audio, mimeType, typed) {
       'and return one item for EVERY matching task: the "person on day: N task(s), M not done" line tells you how many there are, so your count must match it. ' +
       'Leave out tasks with status Done unless the manager asks for them, and say how many you left out in understood. Use action "reassign" with that task\'s ID in sourceId when the existing task should move to someone else (keep its wording); ' +
       'use action "create" with the copied wording when the work should be done again or duplicated.\n' +
-      '- Needing knowledge ("set up onboarding for Nekosha", "chase everyone who has not paid", "what is left for A2P"): use the knowledge, SOPs and client data to write each concrete step as its own task, with client names filled in.\n' +
+      '- Needing knowledge ("set up onboarding for the new client", "chase everyone who has not paid", "what is left for A2P"): use the knowledge, SOPs and client data to write each concrete step as its own task, with client names filled in.\n' +
       '- Plain new work: write it as a clear task that starts with a verb and keeps every detail that was said (links, numbers, client names).\n' +
       '- Never return a task that only restates the instruction, such as "Review Thursday\'s tasks and do them". If nothing matches, return no task for it and say so in understood.',
     'Team members you may assign (use these exact names; names in the recording may be misheard, so match each to the closest name here): ' +
@@ -389,12 +392,14 @@ function voiceTasks_(audio, mimeType, typed) {
 
 /* Recent tasks and end-of-day reports, so Gemini can resolve "Thursday's tasks", "what Merab didn't finish" and so on. */
 var OPS = { taskDays: 30, eodDays: 10 };
-function opsContext_() {
+// person: when set (an Expert asking), only that person's tasks and reports are included.
+function opsContext_(person) {
+  var only = String(person || '').toLowerCase(), mine = function (p) { return !only || String(p || '').toLowerCase() === only; };
   function day(d) { var p = String(d || '').slice(0, 10).split('-'); if (p.length < 3) return String(d || ''); return Utilities.formatDate(new Date(+p[0], +p[1] - 1, +p[2]), tz_(), 'EEE yyyy-MM-dd'); }
   var since = function (n) { return Utilities.formatDate(new Date(Date.now() - n * 864e5), tz_(), 'yyyy-MM-dd'); };
   fillTaskIds_();
   var byId = {}, tCut = since(OPS.taskDays), eCut = since(OPS.eodDays);
-  var tasks = readTable_('Tasks').rows.filter(function (r) { return r.task && String(r.date || r.createdAt).slice(0, 10) >= tCut; });
+  var tasks = readTable_('Tasks').rows.filter(function (r) { return r.task && mine(r.person) && String(r.date || r.createdAt).slice(0, 10) >= tCut; });
   tasks.forEach(function (r) { byId[r.id] = r; });
   // Grouped by day, then person, with counts, so "all of Merab's Wednesday tasks" can be read off one block instead of picked out of a long list.
   var groups = {};
@@ -413,7 +418,7 @@ function opsContext_() {
         r.task.replace(/\s+/g, ' '), r.doneNote ? 'did: ' + r.doneNote.replace(/\s+/g, ' ').slice(0, 300) : ''].join(' | '));
     });
   });
-  var eLines = readTable_('EOD').rows.filter(function (e) { return String(e.date).slice(0, 10) >= eCut; }).map(function (e) {
+  var eLines = readTable_('EOD').rows.filter(function (e) { return mine(e.person) && String(e.date).slice(0, 10) >= eCut; }).map(function (e) {
     return [day(e.date), e.person, 'done: ' + String(e.done).replace(/\s+/g, ' ').slice(0, 500), 'blockers: ' + String(e.blockers).replace(/\s+/g, ' ').slice(0, 200), 'next: ' + String(e.next).replace(/\s+/g, ' ').slice(0, 200)].join(' | ');
   });
   return {
@@ -523,7 +528,6 @@ function rebuildChatDigest() {
 
 function askAssistant(token, mode, history, audio, mimeType) {
   var me = who_(token);
-  need_(me, ['Admin', 'Organizer']);
   return askAssistant_(me, mode, history, audio, mimeType);
 }
 
@@ -542,7 +546,8 @@ function askAssistant_(me, mode, history, audio, mimeType) {
   }
   var when = 'Today is ' + Utilities.formatDate(new Date(), tz_(), 'EEEE MMM d, yyyy') + '. You are talking with ' + me.name + ' (' + me.level + ') in the Hive Operations Hub.';
   var body = { contents: contents, generationConfig: { temperature: mode === 'hive' ? 0.3 : 0.7 } };
-  if (mode === 'hive') body.system_instruction = { parts: [{ text: hiveBrain_() + '\n\n' + opsContext_().text + '\n\n' + when }] };
+  if (mode === 'hive') body.system_instruction = { parts: [{ text: hiveBrain_() + '\n\n' + opsContext_(me.level === 'Expert' ? me.name : '').text + '\n\n' + when +
+    (me.level === 'Expert' ? ' They are an Expert: they only see their own tasks and reports, and cannot assign work to others.' : '') }] };
   else { body.system_instruction = { parts: [{ text: 'You are Gemini, a helpful assistant. ' + when + ' They work at Powered by H.I.V.E., a GoHighLevel CRM agency for shared-housing owners.' }] }; body.tools = [{ google_search: {} }]; }
   var reply = gemini_(body).trim();
   if (!reply) throw new Error('Gemini returned an empty answer. Try again.');
@@ -677,7 +682,8 @@ function changeMyPassword(token, current, next) {
 
 function setPassword_(name, password, keepToken) {
   password = String(password || '');
-  if (password.length < 6) throw new Error('Use at least 6 characters.');
+  if (password.length < 8 || !/[A-Za-z]/.test(password) || !/[0-9]/.test(password) || !/[^A-Za-z0-9]/.test(password))
+    throw new Error('Use at least 8 characters with a letter, a number and a symbol such as @ ! # $.');
   return withLock_(function () {
     var t = readTable_('Team');
     var r = t.rows.filter(function (m) { return m.name.toLowerCase() === String(name).toLowerCase(); })[0];
@@ -697,10 +703,30 @@ function setPasswordFromMenu() {
   var ui = SpreadsheetApp.getUi();
   var a = ui.prompt('Set a password', 'Name (exactly as in the Team tab):', ui.ButtonSet.OK_CANCEL);
   if (a.getSelectedButton() !== ui.Button.OK) return;
-  var b = ui.prompt('Set a password', 'New password for ' + a.getResponseText() + ' (6+ characters):', ui.ButtonSet.OK_CANCEL);
+  var b = ui.prompt('Set a password', 'New password for ' + a.getResponseText() + ' (8+ characters with a letter, a number and a symbol):', ui.ButtonSet.OK_CANCEL);
   if (b.getSelectedButton() !== ui.Button.OK) return;
   try { setPassword_(a.getResponseText().trim(), b.getResponseText()); ui.alert('Password updated.'); }
   catch (e) { ui.alert(e.message); }
+}
+
+// Editor only: gives every active team member a new random password, signs everyone out,
+// and writes the list to a "New passwords" tab. Share them, then delete that tab.
+function resetAllPasswords() {
+  var letters = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz', digits = '23456789', symbols = '@!#$%&*?';
+  function pick(set, n) {
+    var out = '', bytes = [];
+    while (bytes.length < n) bytes = bytes.concat(Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, Utilities.getUuid()));
+    for (var i = 0; i < n; i++) out += set.charAt(((bytes[i] + 256) % 256) % set.length);
+    return out;
+  }
+  function make() { return pick(letters, 6) + pick(symbols, 1) + pick(digits, 3) + pick(letters, 2); }
+  var list = members_().filter(function (m) { return normLevel_(m.level) && m.name.toLowerCase() !== 'test'; })
+    .map(function (m) { var pw = make(); setPassword_(m.name, pw); return [m.name, normLevel_(m.level), pw]; });
+  var ss = SpreadsheetApp.getActive(), sh = ss.getSheetByName('New passwords') || ss.insertSheet('New passwords');
+  sh.clear();
+  sh.getRange(1, 1, list.length + 1, 3).setValues([['Name', 'Level', 'New password']].concat(list));
+  sh.getRange(list.length + 3, 1).setValue('Made ' + Utilities.formatDate(new Date(), tz_(), 'yyyy-MM-dd HH:mm') + '. Give each person theirs, then delete this tab.');
+  Logger.log('Reset ' + list.length + ' passwords. See the "New passwords" tab.');
 }
 
 /* ---------- One-time setup ---------- */
