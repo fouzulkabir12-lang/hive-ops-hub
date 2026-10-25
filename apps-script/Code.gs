@@ -343,10 +343,12 @@ function voiceTasks_(audio, mimeType, typed) {
     'Team members you may assign (use these exact names; names in the recording may be misheard, so match each to the closest name here): ' +
       people.map(function (m) { return m.name + (m.role ? ' (' + m.role + ')' : ''); }).join(', ') + '.',
     'Roles: ' + HUB.roles.join(', ') + '. Set ownerRole to one of these only when it is clear, otherwise leave it empty.',
-    'Today is ' + Utilities.formatDate(new Date(), tz_(), 'EEEE yyyy-MM-dd') + '. A weekday name means the most recent one before today unless the manager says "next". ' +
+    'Today is ' + Utilities.formatDate(new Date(), tz_(), 'EEEE yyyy-MM-dd') + '. When looking up past tasks, a weekday name means the most recent one before today. When saying when new work happens or is due ("on Monday", "by Friday"), it means the coming one. ' +
       'Turn spoken deadlines such as "tomorrow" or "by Friday" into YYYY-MM-DD in deadline; leave deadline empty when no date was said.',
     'One person per item: when work is for several people, add one item for each. When nobody was named, set person to an empty string. ' +
-      'Group items by person in the order people were first mentioned, and order each person\'s items by priority. Put the client or business name in client. ' +
+      'Group items by person in the order people were first mentioned, and order each person\'s items by priority: when the manager numbers them ("first", "second thing", "number three", "top priority"), keep exactly that order and that count. ' +
+      'A step the manager says belongs to the same task ("before that, in this same task, check with me and Tiffany") stays inside that task as its first step, not a separate item. ' +
+      'Write each task as a complete instruction a team member can act on without the recording: what to do, why, any check-ins, and what done looks like. Keep the deadline and any "at all costs" urgency they said. Put the client or business name in client. ' +
       'Put useful context, the source (for example "from Merab\'s task on Thu Oct 22") or priority in notes. ' +
       'In understood, write 1-3 short sentences saying what you understood and anything you could not find or were unsure about. Put the full transcript of the recording in transcript.'
   ].filter(String).join('\n\n');

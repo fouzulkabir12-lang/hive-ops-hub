@@ -478,7 +478,7 @@ body { margin: 0; }
     }).catch(function (e) { foot(e.message); })
       .then(function () { v.working = false; state.busy = false; render(); });
   }
-  function voiceTaskRow(t, i) {
+  function voiceTaskRow(t, i, num) {
     var v = vs();
     function bind(field) { return function (e) { t[field] = e.target.value; }; }
     var person = options(el("select", { id: "vt_p_" + i, "aria-label": "Assign to", onchange: function (e) { t.person = e.target.value; render(); } }), d().people || [], t.person, "Choose person");
@@ -489,7 +489,7 @@ body { margin: 0; }
     var due = el("input", { id: "vt_d_" + i, type: "date", "aria-label": "Due date", value: s(t.deadline), oninput: bind("deadline") });
     var notes = el("input", { id: "vt_n_" + i, placeholder: "Notes (optional)", value: s(t.notes), oninput: bind("notes") });
     var rm = el("button", { class: "btn alt", text: "Remove", onclick: function () { v.tasks.splice(i, 1); render(); } });
-    return el("div", { class: "vtask form" }, [el("label", { class: "full" }, [moving ? "Move existing task from " + (t.from || "nobody") + " (wording stays the same)" : "New task", task]), el("label", {}, ["Person", person]), el("label", {}, ["Client", client]),
+    return el("div", { class: "vtask form" }, [el("label", { class: "full" }, [num + ". " + (moving ? "Move existing task from " + (t.from || "nobody") + " (wording stays the same)" : "New task"), task]), el("label", {}, ["Person", person]), el("label", {}, ["Client", client]),
       el("label", {}, ["Role", role]), el("label", {}, ["Due", due]), el("label", { class: "full" }, ["Notes", notes]), el("div", { class: "full" }, [rm])]);
   }
   function voiceBlock() {
@@ -518,17 +518,24 @@ body { margin: 0; }
     if (v.understood) kids.push(el("div", { class: "msg model" }, [el("b", { text: "What Gemini understood: " }), v.understood]));
     if (v.transcript) kids.push(el("details", {}, [el("summary", { text: "What Gemini heard" }), el("p", { class: "note", text: v.transcript })]));
     if (v.tasks.length) {
-      var last = null;
+      var last = null, n = 0;
       v.tasks.forEach(function (t, i) {
         var who = t.person || "Not assigned yet";
-        if (who !== last) { kids.push(el("div", { class: "vgroup", text: who })); last = who; }
-        kids.push(voiceTaskRow(t, i));
+        if (who !== last) { kids.push(el("div", { class: "vgroup", text: who })); last = who; n = 0; }
+        kids.push(voiceTaskRow(t, i, ++n));
       });
       var missing = v.tasks.filter(function (t) { return !t.person; }).length;
       kids.push(el("div", { class: "voice-bar" }, [
         el("button", { class: "btn", text: "Assign all " + v.tasks.length + " tasks", disabled: off || !!missing, onclick: function () {
           var n = v.tasks.length;
-          act(api("addTasks", state.token, v.tasks), n + " tasks assigned.").then(function () { if (/tasks assigned/.test($("foot").textContent)) { resetVoice(); render(); } });
+          // Save each person's order as "Priority 1", "Priority 2"… in the notes.
+          var seen = {}, list = v.tasks.map(function (t) {
+            var k = (seen[t.person] = (seen[t.person] || 0) + 1), o = {};
+            Object.keys(t).forEach(function (f) { o[f] = t[f]; });
+            if (o.action !== "reassign") o.notes = "Priority " + k + (o.notes ? ". " + o.notes : "");
+            return o;
+          });
+          act(api("addTasks", state.token, list), n + " tasks assigned.").then(function () { if (/tasks assigned/.test($("foot").textContent)) { resetVoice(); render(); } });
         } }),
         missing ? el("span", { class: "note", text: "Choose a person for " + missing + (missing === 1 ? " task" : " tasks") + " first." }) : null
       ]));
