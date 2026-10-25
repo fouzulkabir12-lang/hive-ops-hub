@@ -532,7 +532,7 @@ body { margin: 0; }
           var seen = {}, list = v.tasks.map(function (t) {
             var k = (seen[t.person] = (seen[t.person] || 0) + 1), o = {};
             Object.keys(t).forEach(function (f) { o[f] = t[f]; });
-            if (o.action !== "reassign") o.notes = "Priority " + k + (o.notes ? ". " + o.notes : "");
+            if (o.action !== "reassign" && !/^priority/i.test(s(o.notes))) o.notes = "Priority " + k + (o.notes ? ". " + o.notes : "");
             return o;
           });
           act(api("addTasks", state.token, list), n + " tasks assigned.").then(function () { if (/tasks assigned/.test($("foot").textContent)) { resetVoice(); render(); } });
