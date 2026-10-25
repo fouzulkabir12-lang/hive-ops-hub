@@ -331,7 +331,8 @@ function voiceTasks_(audio, mimeType, typed) {
       'Ignore the output formats above; reply only in the JSON shape asked for.',
     'How to handle instructions:\n' +
       '- About existing work ("reassign Thursday\'s tasks to Chris", "give Kamran what Merab didn\'t finish", "repeat yesterday\'s tasks"): find the matching tasks in TASK HISTORY by weekday, date, person and status, ' +
-      'and return one item per matching task. Use action "reassign" with that task\'s ID in sourceId when the existing task should move to someone else (keep its wording); ' +
+      'and return one item for EVERY matching task: the "person on day: N task(s), M not done" line tells you how many there are, so your count must match it. ' +
+      'Leave out tasks with status Done unless the manager asks for them, and say how many you left out in understood. Use action "reassign" with that task\'s ID in sourceId when the existing task should move to someone else (keep its wording); ' +
       'use action "create" with the copied wording when the work should be done again or duplicated.\n' +
       '- Needing knowledge ("set up onboarding for Nekosha", "chase everyone who has not paid", "what is left for A2P"): use the knowledge, SOPs and client data to write each concrete step as its own task, with client names filled in.\n' +
       '- Plain new work: write it as a clear task that starts with a verb and keeps every detail that was said (links, numbers, client names).\n' +
@@ -395,16 +396,29 @@ function opsContext_() {
   var byId = {}, tCut = since(OPS.taskDays), eCut = since(OPS.eodDays);
   var tasks = readTable_('Tasks').rows.filter(function (r) { return r.task && String(r.date || r.createdAt).slice(0, 10) >= tCut; });
   tasks.forEach(function (r) { byId[r.id] = r; });
-  var tLines = tasks.map(function (r) {
-    return [r.id, 'assigned ' + day(r.date || r.createdAt), r.person || '(nobody)', r.status || 'Open', r.client || '-', r.deadline ? 'due ' + r.deadline : '-',
-      r.task.replace(/\s+/g, ' '), r.doneNote ? 'did: ' + r.doneNote.replace(/\s+/g, ' ').slice(0, 300) : ''].join(' | ');
+  // Grouped by day, then person, with counts, so "all of Merab's Wednesday tasks" can be read off one block instead of picked out of a long list.
+  var groups = {};
+  tasks.forEach(function (r) {
+    var k = String(r.date || r.createdAt).slice(0, 10) + '\u0000' + (r.person || '(nobody)');
+    (groups[k] = groups[k] || []).push(r);
+  });
+  var tLines = [], lastDay = '';
+  Object.keys(groups).sort().forEach(function (k) {
+    var d = day(k.split('\u0000')[0]), who = k.split('\u0000')[1], list = groups[k];
+    var open = list.filter(function (r) { return r.status !== 'Done'; }).length;
+    if (d !== lastDay) { tLines.push('== ' + d + ' =='); lastDay = d; }
+    tLines.push('  ' + who + ' on ' + d + ': ' + list.length + ' task(s), ' + open + ' not done');
+    list.forEach(function (r) {
+      tLines.push('    ' + [r.id, r.status || 'Open', r.client || '-', r.deadline ? 'due ' + r.deadline : '-',
+        r.task.replace(/\s+/g, ' '), r.doneNote ? 'did: ' + r.doneNote.replace(/\s+/g, ' ').slice(0, 300) : ''].join(' | '));
+    });
   });
   var eLines = readTable_('EOD').rows.filter(function (e) { return String(e.date).slice(0, 10) >= eCut; }).map(function (e) {
     return [day(e.date), e.person, 'done: ' + String(e.done).replace(/\s+/g, ' ').slice(0, 500), 'blockers: ' + String(e.blockers).replace(/\s+/g, ' ').slice(0, 200), 'next: ' + String(e.next).replace(/\s+/g, ' ').slice(0, 200)].join(' | ');
   });
   return {
     byId: byId,
-    text: 'TASK HISTORY (last ' + OPS.taskDays + ' days; ID | assigned on | person | status | client | due | task | what they did):\n' + (tLines.join('\n') || '(none)') +
+    text: 'TASK HISTORY (last ' + OPS.taskDays + ' days, grouped by the day assigned, then person; each line is ID | status | client | due | task | what they did):\n' + (tLines.join('\n') || '(none)') +
       '\n\nEND-OF-DAY REPORTS (last ' + OPS.eodDays + ' days):\n' + (eLines.join('\n') || '(none)')
   };
 }
